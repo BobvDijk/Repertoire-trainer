@@ -64,6 +64,8 @@ button.p{border-radius:999px;padding:8px 20px}
 #pp,#pl,#sb,#sf,#nl{display:inline-flex;align-items:center;justify-content:center;gap:7px}
 #pp{min-width:112px}
 body.quizq #ex,body.quizq #mv,body.quizq #cm,body.quizq #tree,body.quizq #tabs{display:none}
+/* while a quiz runs, hide the review list and settings so the quiz card stays in focus */
+body.quizon #rv,body.quizon .card:has(#spd){display:none}
 body.glance #tabs,body.glance #tree{display:none}
 #tree{max-height:360px;overflow:auto;font-size:14px;line-height:1.6}
 .tn0{margin-bottom:10px}
@@ -127,3 +129,4 @@ h1 .row button{min-height:34px;padding:3px 8px;font-size:13px}
 /* the move list has no spaces between moves: make each move its own box so lines wrap between moves, never inside "O-O" */
 .moves b,.moves span{display:inline-block;white-space:nowrap}
 @media(max-width:360px){#fl{font-size:0}#fl::before{content:'\21C5';font-size:18px}}
+#rvout{scroll-margin-top:56px} /* clear the sticky control bar when scrolled to */

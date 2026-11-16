@@ -352,7 +352,14 @@ $('#back').onclick = () => { $('#empty').classList.add('hide'); $('#player').cla
 
 /* ---------- mistake quiz ---------- */
 let QZ = null;
-function qzStart(list, i) { QZ = Q.createQuiz(list, i); qzShow(); }
+// Bring the quiz card into view. On phones the side panel scrolls on its own and the quiz
+// card sits at its top, so starting the quiz from the review list left it off-screen.
+function qzReveal() {
+  const panel = $('#player > div:last-child');
+  if (panel && panel.scrollHeight > panel.clientHeight + 1) panel.scrollTop = 0;
+  else $('#qz').scrollIntoView({ block: 'nearest' });
+}
+function qzStart(list, i) { QZ = Q.createQuiz(list, i); document.body.classList.add('quizon'); qzShow(); }
 function qzShow() {
   while (QZ.o && !lineThrough(lines, QZ.o.r.key, QZ.o.c)) QZ.o = QZ.list[++QZ.i] || null;
   const o = QZ.o; if (!o) { qzEnd(); return; }
@@ -363,15 +370,21 @@ function qzShow() {
   document.body.classList.add('quizq'); $('#qz').classList.remove('hide'); $('#qzs').textContent = Q.scoreText(QZ);
   $('#qzm').textContent = Q.promptText(o);
   $('#qznext').classList.add('hide'); $('#qzshow').classList.remove('hide');
+  qzReveal();
 }
 function qzDone(good) {
   Q.finish(QZ, good); $('#qzs').textContent = Q.scoreText(QZ); document.body.classList.remove('quizq');
   $('#qzm').textContent = Q.resultText(QZ.o, good, QZ.tries);
   $('#qzshow').classList.add('hide'); $('#qznext').textContent = QZ.i + 1 < QZ.list.length ? 'Next' : 'Finish'; $('#qznext').classList.remove('hide');
+  qzReveal();
 }
 function qzAnswer() { if (!QZ || !QZ.on || QZ.done) return; qzDone(false); drawArrows(Q.answerArrows(QZ.o)); }
-function qzEnd() { document.body.classList.remove('quizq'); QZ.on = false; $('#qzm').textContent = 'Quiz finished: ' + QZ.good + ' of ' + QZ.seen + ' correct.'; $('#qzshow').classList.add('hide'); $('#qznext').classList.add('hide'); }
-function qzExit() { if (QZ) QZ.on = false; document.body.classList.remove('quizq'); $('#qz').classList.add('hide'); }
+function qzEnd() { document.body.classList.remove('quizq'); QZ.on = false; $('#qzm').textContent = 'Quiz finished: ' + QZ.good + ' of ' + QZ.seen + ' correct.'; $('#qzshow').classList.add('hide'); $('#qznext').classList.add('hide'); qzReveal(); }
+function qzExit() {
+  if (QZ) QZ.on = false;
+  document.body.classList.remove('quizq', 'quizon'); $('#qz').classList.add('hide');
+  $('#rv').open = true; $('#rvout').scrollIntoView({ block: 'start' }); // back to the review list
+}
 $('#qzshow').onclick = qzAnswer; $('#qznext').onclick = () => { Q.advance(QZ); qzShow(); }; $('#qzexit').onclick = qzExit;
 
 /* ---------- repertoire tree ---------- */
