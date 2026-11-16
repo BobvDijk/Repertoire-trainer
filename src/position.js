@@ -146,7 +146,8 @@ export function spanTree(g, key, vis = new Set([key]), d = 0) {
 export function truncateLine(L, m) {
   const { pos, mv, pk, ek, n, black, num, bad, ...rest } = L;
   const sans = L.sans.slice(0, m);
-  return { ...rest, sans, cm: L.cm.slice(0, m + 1), ar: L.ar.slice(0, m + 1), id: hid(L.side + L.name + '|' + sans.join(' ')) };
+  // same id formula as buildLines, so the line keeps its id after exporting and re-importing
+  return { ...rest, sans, cm: L.cm.slice(0, m + 1), ar: L.ar.slice(0, m + 1), id: hid(L.side + (L.cn ?? L.name) + '|' + sans.join(' ')) };
 }
 
 /**

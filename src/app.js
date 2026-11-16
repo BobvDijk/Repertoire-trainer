@@ -1,6 +1,6 @@
 // UI: wires the pure modules to the page. Ported from the original single-file version.
 import { Chess } from '../vendor/chess.mjs';
-import { buildLines, renumber } from './pgn.js';
+import { buildLines, renumber, writePgn } from './pgn.js';
 import { posKey, prepare, posKeys, edgeKeys, pathText, isWhitePly, plyNumber,
   buildRepIndex, lineThrough, buildGraph, spanTree, removeMoves } from './position.js';
 import { linePriority, smartStartIndex, recordReview, smartOrder, poolEdgeKeys, dueSummary } from './smart.js';
@@ -191,11 +191,33 @@ function buildAll() {
   return counts;
 }
 function impStatus() {
-  const one = sd => { const n = lines.filter(l => l.side === sd).length; return n ? n + ' lines' + (SKIP[sd] ? ' (' + SKIP[sd] + ' alternative move' + (SKIP[sd] > 1 ? 's' : '') + ' skipped)' : '') : 'not loaded'; };
+  const one = sd => { const n = lines.filter(l => l.side === sd).length; return n ? n + (n === 1 ? ' line' : ' lines') + (SKIP[sd] ? ' (' + SKIP[sd] + ' alternative move' + (SKIP[sd] > 1 ? 's' : '') + ' skipped)' : '') : 'not loaded'; };
   $('#impst').textContent = 'White: ' + one('w') + ' \u00b7 Black: ' + one('b');
   const n = RM[$('#side').value].length;
   $('#rmrestore').classList.toggle('hide', !n); $('#rmrestore').textContent = 'Restore ' + n + ' removed move' + (n > 1 ? 's' : '');
+  const sd = $('#side').value, ls = lines.filter(l => l.side === sd);
+  $('#pgnrow').classList.toggle('hide', !ls.length);
+  $('#pgnst').textContent = ls.length ? 'Your ' + (sd === 'b' ? 'Black' : 'White') + ' repertoire as it is now (' + ls.length + (ls.length === 1 ? ' line' : ' lines') + (n || SKIP[sd] ? ', without removed or skipped moves' : '') + ')' : '';
 }
+/* ---------- export the live repertoire as PGN ---------- */
+const exportName = sd => 'repertoire-' + (sd === 'b' ? 'black' : 'white') + '-' + new Date().toISOString().slice(0, 10) + '.pgn';
+$('#pgnexp').onclick = async () => {
+  const sd = $('#side').value, text = writePgn(lines, chapters, sd), name = exportName(sd), type = 'application/x-chess-pgn';
+  // On phones the share sheet works best (save to Files, send, open in another app)
+  const file = typeof File === 'function' ? new File([text], name, { type }) : null;
+  if (file && navigator.canShare && matchMedia('(pointer:coarse)').matches && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: name }); $('#pgnst').textContent = 'Shared ' + name; return; }
+    catch (e) { if (e.name === 'AbortError') return; }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([text], { type })); a.download = name;
+  document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+  $('#pgnst').textContent = 'Saved ' + name;
+};
+$('#pgncopy').onclick = async () => {
+  try { await navigator.clipboard.writeText(writePgn(lines, chapters, $('#side').value)); $('#pgnst').textContent = 'PGN copied to the clipboard'; }
+  catch (e) { $('#pgnst').textContent = 'This browser didn\u2019t allow copying; use Export PGN instead.'; }
+};
 function refreshPlayer() {
   fillChapters();
   setPlay(false); setPool(-1); rvRender();
