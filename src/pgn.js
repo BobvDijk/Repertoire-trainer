@@ -59,6 +59,22 @@ export function leafPaths(root) {
   return out;
 }
 
+/**
+ * Keep only the main (first) move wherever `side` is to move, dropping the alternative moves
+ * for that side and everything after them. The opponent's alternatives are all kept.
+ * firstToMove is the side to move at the root. Returns how many alternative moves were dropped.
+ */
+export function pruneAlternatives(root, side, firstToMove = 'w') {
+  let dropped = 0;
+  const walk = (n, toMove) => {
+    if (toMove === side && n.ch.length > 1) { dropped += n.ch.length - 1; n.ch = [n.ch[0]]; }
+    const next = toMove === 'w' ? 'b' : 'w';
+    for (const c of n.ch) walk(c, next);
+  };
+  walk(root, firstToMove);
+  return dropped;
+}
+
 /** Chapter name from PGN headers. */
 export function chapterName(h, gi) {
   if (h.Event && h.Event !== '?') return h.Event;
@@ -70,11 +86,16 @@ export function chapterName(h, gi) {
  * Turn a PGN into chapters and lines for one side ('w' | 'b').
  * Each game becomes a chapter; each root-to-leaf path becomes a line.
  * chapterOffset is the index of the first chapter (chapters of both sides share one list).
+ * opts.mainOnly: skip alternative moves for `side` (see pruneAlternatives); the number of
+ * skipped moves is returned as `skipped`.
  */
-export function buildLines(text, side, chapterOffset = 0) {
+export function buildLines(text, side, chapterOffset = 0, opts = {}) {
+  let skipped = 0;
   const chapters = [], lines = [], pre = side === 'b' ? '♚ ' : '♔ ';
   splitGames(text).forEach((g, gi) => {
-    const h = g.h, root = parseMoveTree(g.m), paths = leafPaths(root);
+    const h = g.h, root = parseMoveTree(g.m);
+    if (opts.mainOnly) skipped += pruneAlternatives(root, side, (h.FEN || '').split(' ')[1] === 'b' ? 'b' : 'w');
+    const paths = leafPaths(root);
     if (!paths.length) return;
     const name = chapterName(h, gi);
     const ci = chapterOffset + chapters.length;
@@ -88,5 +109,5 @@ export function buildLines(text, side, chapterOffset = 0) {
       fen: h.FEN, or: side === 'b' ? 'black' : 'white',
     }));
   });
-  return { chapters, lines };
+  return { chapters, lines, skipped };
 }

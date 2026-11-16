@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { splitGames, parseMoveTree, leafPaths, buildLines, chapterName } from '../src/pgn.js';
+import { splitGames, parseMoveTree, leafPaths, buildLines, chapterName, pruneAlternatives } from '../src/pgn.js';
 
 const sans = root => leafPaths(root).map(p => p.map(n => n.san).join(' '));
 
@@ -75,4 +75,38 @@ test('line ids are stable across parses and depend on side', () => {
   const a = buildLines('1. e4 e5 *', 'w').lines[0].id;
   assert.equal(buildLines('1. e4 e5 *', 'w').lines[0].id, a);
   assert.notEqual(buildLines('1. e4 e5 *', 'b').lines[0].id, a);
+});
+
+const REP = '1. e4 (1. d4 d5) e5 (1... c5 2. Nf3 (2. c3) d6) 2. Nf3 (2. Bc4) Nc6 *';
+const paths = r => r.lines.map(l => l.sans.join(' '));
+
+test('mainOnly for White keeps only White\'s first move, but every Black reply', () => {
+  const r = buildLines(REP, 'w', 0, { mainOnly: true });
+  assert.deepEqual(paths(r), ['e4 e5 Nf3 Nc6', 'e4 c5 Nf3 d6']);
+  assert.equal(r.skipped, 3, '1.d4, 2.Bc4 and 2.c3 are dropped');
+  assert.equal(r.chapters[0].count, 2);
+});
+
+test('mainOnly for Black keeps only Black\'s first move, but every White try', () => {
+  const r = buildLines(REP, 'b', 0, { mainOnly: true });
+  assert.deepEqual(paths(r), ['e4 e5 Nf3 Nc6', 'e4 e5 Bc4', 'd4 d5']);
+  assert.equal(r.skipped, 1, '1...c5 is dropped');
+});
+
+test('without mainOnly every variation is kept, and kept lines keep their ids (progress survives)', () => {
+  const all = buildLines(REP, 'w');
+  assert.equal(all.lines.length, 5); assert.equal(all.skipped, 0);
+  for (const l of buildLines(REP, 'w', 0, { mainOnly: true }).lines) assert.ok(all.lines.some(a => a.id === l.id));
+});
+
+test('mainOnly follows a FEN where Black moves first', () => {
+  const pgn = '[FEN "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"]\n\n1... c5 (1... e5 2. Nf3) 2. Nf3 (2. c3) d6 *';
+  assert.deepEqual(paths(buildLines(pgn, 'b', 0, { mainOnly: true })), ['c5 Nf3 d6', 'c5 c3']);
+  assert.deepEqual(paths(buildLines(pgn, 'w', 0, { mainOnly: true })), ['c5 Nf3 d6', 'e5 Nf3']);
+});
+
+test('pruneAlternatives counts dropped moves, not the moves after them', () => {
+  const root = parseMoveTree('1. e4 (1. d4 d5 2. c4 e6 3. Nc3) (1. c4) e5 *');
+  assert.equal(pruneAlternatives(root, 'w'), 2);
+  assert.deepEqual(leafPaths(root).map(p => p.map(n => n.san).join(' ')), ['e4 e5']);
 });

@@ -169,17 +169,28 @@ const TX = { w: '', b: '' };
 try { TX.w = localStorage.getItem('rp-pgn-w') || ''; TX.b = localStorage.getItem('rp-pgn-b') || ''; const old = localStorage.getItem('rp-pgn'); if (old && !TX.w && !TX.b) TX.w = old; } catch (e) { /* no storage */ }
 let REPC = {};
 const repFor = c => REPC[c] || (REPC[c] = buildRepIndex(lines, c));
+// Per-side import options; the stored PGN is re-parsed with them on every load.
+const OPT = { w: { mainOnly: false }, b: { mainOnly: false }, ...load('rp-pgnopt', {}) };
+const SKIP = { w: 0, b: 0 };
 function buildAll() {
-  lines = []; chapters = []; REPC = {};
+  lines = []; chapters = []; REPC = {}; TSIG = '';
   const counts = [0, 0];
   ['w', 'b'].forEach((sd, x) => {
+    SKIP[sd] = 0;
     if (!TX[sd]) return;
-    const r = buildLines(TX[sd], sd, chapters.length);
-    chapters.push(...r.chapters); lines.push(...r.lines); counts[x] = r.lines.length;
+    const r = buildLines(TX[sd], sd, chapters.length, OPT[sd]);
+    chapters.push(...r.chapters); lines.push(...r.lines); counts[x] = r.lines.length; SKIP[sd] = r.skipped;
   });
   return counts;
 }
-function impStatus() { const w = lines.filter(l => l.side === 'w').length, b = lines.filter(l => l.side === 'b').length; $('#impst').textContent = 'White: ' + (w ? w + ' lines' : 'not loaded') + ' · Black: ' + (b ? b + ' lines' : 'not loaded'); }
+function impStatus() {
+  const one = sd => { const n = lines.filter(l => l.side === sd).length; return n ? n + ' lines' + (SKIP[sd] ? ' (' + SKIP[sd] + ' alternative move' + (SKIP[sd] > 1 ? 's' : '') + ' skipped)' : '') : 'not loaded'; };
+  $('#impst').textContent = 'White: ' + one('w') + ' \u00b7 Black: ' + one('b');
+}
+function refreshPlayer() {
+  $('#chap').innerHTML = `<option value="-1">All chapters (${lines.length} lines)</option>` + chapters.map((c, i) => `<option value="${i}">${c.name.replace(/</g, '&lt;')} (${c.count})</option>`).join('');
+  setPlay(false); setPool(-1); rvRender();
+}
 function start(text, side) {
   if (text !== undefined) {
     const prev = TX[side]; TX[side] = text; const r = buildAll();
@@ -188,9 +199,17 @@ function start(text, side) {
   } else buildAll();
   impStatus(); if (!lines.length) return false;
   $('#empty').classList.add('hide'); $('#player').classList.remove('hide'); ['#load2', '#glb', '#pop'].forEach(x => $(x).classList.remove('hide'));
-  $('#chap').innerHTML = `<option value="-1">All chapters (${lines.length} lines)</option>` + chapters.map((c, i) => `<option value="${i}">${c.name.replace(/</g, '&lt;')} (${c.count})</option>`).join('');
-  setPlay(false); setPool(-1); rvRender(); return true;
+  refreshPlayer(); return true;
 }
+// "Skip alternative moves for my side": a per-side setting, applied right away to a loaded repertoire.
+const syncMainOnly = () => { $('#mainonly').checked = !!OPT[$('#side').value].mainOnly; };
+$('#side').onchange = syncMainOnly;
+$('#mainonly').onchange = e => {
+  const sd = $('#side').value; OPT[sd] = { ...OPT[sd], mainOnly: e.target.checked }; store('rp-pgnopt', OPT);
+  if (!TX[sd]) return;
+  buildAll(); impStatus(); if (lines.length) refreshPlayer();
+};
+syncMainOnly();
 const readFile = f => { const r = new FileReader(); r.onload = () => start(String(r.result), $('#side').value); r.readAsText(f); };
 $('#pick').onclick = () => $('#file').click();
 $('#file').onchange = e => e.target.files[0] && readFile(e.target.files[0]);
