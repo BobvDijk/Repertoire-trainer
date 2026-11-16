@@ -92,7 +92,7 @@ function drawBoard(fen, mv, anim) {
     const coordF = ri === 7 ? `<i class="f">${'abcdefgh'[f]}</i>` : '', coordR = fi === 7 ? `<i class="r">${8 - r}</i>` : '';
     h += `<div class="sq ${light ? 'l' : 'd'}${hl ? ' hl' : ''}${chk === name ? ' chk' : ''}" data-s="${name}">${coordR}${coordF}${p ? `<svg viewBox="0 0 45 45"><use href="#${p === p.toLowerCase() ? 'b' : 'w'}${p.toUpperCase()}"/></svg>` : ''}</div>`;
   }
-  $('#board').innerHTML = h; sel = null;
+  endDrag(); $('#board').innerHTML = h; sel = null;
   if (anim && mv) slide(mv);
 }
 function drawMoves() {
@@ -237,32 +237,81 @@ $('#exgo').onclick = () => setAnchor(cur, mi);
 $('#exroot').onclick = () => setAnchor(cur, 0);
 $('#exback').onclick = () => { if (anchor && anchor.j > 0) setAnchor(anchor.L, anchor.j - 1); };
 $('#exoff').onclick = () => setPool(baseCi);
-function boardClick(e) {
-  const sq = e.target.closest('.sq'); if (!sq || !cur) return;
-  const s = sq.dataset.s, fen = cur.pos[mi], ch = new Chess(fen), b = $('#board');
-  const clear = () => { sel = null; b.querySelectorAll('.sel,.tgt').forEach(x => x.classList.remove('sel', 'tgt', 'cap')); };
-  if (sel && sel !== s) {
-    const cands = ch.moves({ square: sel, verbose: true }).filter(m => m.to === s);
-    if (cands.length) {
-      if (QZ && QZ.on && !QZ.done) {
-        if (!Q.isRepertoireMove(QZ.o, cands.map(m => m.san))) { Q.miss(QZ); clear(); $('#qzm').textContent = '✗ ' + cands[0].san + ' isn’t your repertoire move here — try again, or show the answer.'; return; }
-        qzDone(true);
-      }
-      const key = posKeys(cur)[mi];
-      for (const m of cands) {
-        const c2 = new Chess(fen); c2.move(m); const nk = posKey(c2.fen());
-        for (const l of base()) { const K = posKeys(l); for (let i = 0; i < l.n; i++) if (K[i] === key && K[i + 1] === nk) { clear(); if (playing) setPlay(false); setAnchor(l, i + 1); return; } }
-      }
-      clear(); $('#expath').textContent = '“' + cands[0].san + '” isn’t in your repertoire from here.'; setTimeout(renderEx, 2200); return;
-    }
-  }
-  clear();
-  const mv = ch.moves({ square: s, verbose: true });
-  if (!mv.length) return;
-  sel = s; sq.classList.add('sel');
+/* ---------- moving pieces: tap a piece then a square, or drag it ---------- */
+function clearSel() { sel = null; $('#board').querySelectorAll('.sel,.tgt,.cap,.over').forEach(x => x.classList.remove('sel', 'tgt', 'cap', 'over')); }
+// Select a piece and show where it can go. Returns false if it has no legal moves.
+function selectSq(s) {
+  clearSel();
+  const b = $('#board'), mv = new Chess(cur.pos[mi]).moves({ square: s, verbose: true });
+  if (!mv.length) return false;
+  sel = s; b.querySelector('[data-s="' + s + '"]').classList.add('sel');
   mv.forEach(m => { const t = b.querySelector('[data-s="' + m.to + '"]'); if (t) { t.classList.add('tgt'); if (m.flags.includes('c') || m.flags.includes('e')) t.classList.add('cap'); } });
+  return true;
 }
-$('#board').onclick = boardClick;
+// Try the move from -> to. Returns false if it isn't a legal move.
+function tryMove(from, to) {
+  const fen = cur.pos[mi], cands = new Chess(fen).moves({ square: from, verbose: true }).filter(m => m.to === to);
+  if (!cands.length) return false;
+  if (QZ && QZ.on && !QZ.done) {
+    if (!Q.isRepertoireMove(QZ.o, cands.map(m => m.san))) { Q.miss(QZ); clearSel(); $('#qzm').textContent = '✗ ' + cands[0].san + ' isn’t your repertoire move here — try again, or show the answer.'; return true; }
+    qzDone(true);
+  }
+  const key = posKeys(cur)[mi];
+  for (const m of cands) {
+    const c2 = new Chess(fen); c2.move(m); const nk = posKey(c2.fen());
+    for (const l of base()) { const K = posKeys(l); for (let i = 0; i < l.n; i++) if (K[i] === key && K[i + 1] === nk) { clearSel(); if (playing) setPlay(false); setAnchor(l, i + 1); return true; } }
+  }
+  clearSel(); $('#expath').textContent = '“' + cands[0].san + '” isn’t in your repertoire from here.'; setTimeout(renderEx, 2200); return true;
+}
+// Pointer events cover mouse, touch and pen. A press that moves more than a few pixels
+// becomes a drag; otherwise it behaves like a tap.
+let drag = null;
+const sqAt = (doc, x, y) => { const e = doc.elementFromPoint(x, y); const q = e && e.closest('.sq'); return q && q.closest('#board') ? q : null; };
+function endDrag() {
+  if (!drag) return;
+  if (drag.ghost) drag.ghost.remove();
+  if (drag.sq) drag.sq.classList.remove('dragging');
+  drag = null;
+}
+function onDown(e) {
+  if (e.button > 0 || !cur) return;
+  const sq = e.target.closest('.sq'); if (!sq) return;
+  const s = sq.dataset.s;
+  e.preventDefault();
+  if (sel && sel !== s && tryMove(sel, s)) return;            // second tap of tap-tap
+  const was = sel === s;
+  if (!selectSq(s)) { clearSel(); return; }
+  drag = { from: s, sq, x: e.clientX, y: e.clientY, was, ghost: null, id: e.pointerId };
+  try { $('#board').setPointerCapture(e.pointerId); } catch (_) { /* old browsers */ }
+}
+function onMove(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  if (!drag.ghost) {
+    if (Math.hypot(e.clientX - drag.x, e.clientY - drag.y) < 4) return;
+    const pc = drag.sq.querySelector('svg'); if (!pc) return;
+    const doc = drag.sq.ownerDocument, w = drag.sq.getBoundingClientRect().width;
+    drag.ghost = pc.cloneNode(true); drag.ghost.classList.add('ghost');
+    Object.assign(drag.ghost.style, { width: w + 'px', height: w + 'px' });
+    doc.body.appendChild(drag.ghost); drag.sq.classList.add('dragging'); drag.w = w;
+  }
+  drag.ghost.style.transform = 'translate(' + (e.clientX - drag.w / 2) + 'px,' + (e.clientY - drag.w / 2) + 'px)';
+  const over = sqAt(drag.sq.ownerDocument, e.clientX, e.clientY);
+  $('#board').querySelectorAll('.over').forEach(x => x !== over && x.classList.remove('over'));
+  if (over && over.classList.contains('tgt')) over.classList.add('over');
+}
+function onUp(e) {
+  if (!drag || e.pointerId !== drag.id) return;
+  const d = drag, doc = d.sq.ownerDocument; endDrag();
+  if (d.ghost) {                                               // drop
+    const t = sqAt(doc, e.clientX, e.clientY);
+    if (!t || t.dataset.s === d.from || !tryMove(d.from, t.dataset.s)) $('#board').querySelectorAll('.over').forEach(x => x.classList.remove('over'));
+  } else if (d.was) clearSel();                               // tapping the selected piece again deselects it
+}
+const bd = $('#board');
+bd.addEventListener('pointerdown', onDown);
+bd.addEventListener('pointermove', onMove);
+bd.addEventListener('pointerup', onUp);
+bd.addEventListener('pointercancel', () => { endDrag(); });
 const glance = on => document.body.classList.toggle('glance', on);
 $('#glb').onclick = () => { const on = !document.body.classList.contains('glance'); glance(on); try { if (on) document.documentElement.requestFullscreen().catch(() => {}); else if (document.fullscreenElement) document.exitFullscreen(); } catch (e) { /* no fullscreen */ } };
 $('#gex').onclick = () => { glance(false); try { if (document.fullscreenElement) document.exitFullscreen(); } catch (e) { /* no fullscreen */ } };
