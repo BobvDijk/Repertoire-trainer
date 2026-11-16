@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildLines } from '../src/pgn.js';
 import { buildRepIndex } from '../src/position.js';
-import { lichessGamesUrl, parseLichessGames, mergeGames, gameText, summarize, shouldAutoCheck, AUTO_CHECK_GAP } from '../src/review.js';
+import { lichessGamesUrl, parseLichessGames, mergeGames, gameText, summarize, shouldAutoCheck, AUTO_CHECK_GAP, newGames, advanceMark } from '../src/review.js';
 
 const g = (id, white, black, moves, extra = {}) => JSON.stringify({
   id, variant: 'standard', moves, createdAt: extra.t || 1,
@@ -71,4 +71,24 @@ test('shouldAutoCheck: needs a username, the setting on, a connection, and 5 min
   assert.equal(shouldAutoCheck({ ...base, lastCheck: now - AUTO_CHECK_GAP + 1 }), false);
   assert.equal(shouldAutoCheck({ ...base, lastCheck: now - AUTO_CHECK_GAP }), true);
   assert.equal(shouldAutoCheck({ user: 'me', now }), true, 'on by default');
+});
+
+test('newGames keeps games after the mark', () => {
+  const gs = [{ id: 'a', t: 10 }, { id: 'b', t: 20 }, { id: 'c', t: 30 }];
+  assert.deepEqual(newGames(gs, 20).map(g => g.id), ['c']);
+  assert.equal(newGames(gs).length, 3);
+});
+
+test('advanceMark: looked-at batches become old, unseen batches add up', () => {
+  let st = { mark: 0, viewed: false };
+  st = advanceMark(st, 0, 3);            // first fetch: everything is new
+  assert.deepEqual(st, { mark: 0, viewed: false });
+  st = advanceMark(st, 30, 2);           // another batch before looking: still all new
+  assert.deepEqual(st, { mark: 0, viewed: false });
+  st.viewed = true;                      // you open the review
+  st = advanceMark(st, 50, 0);           // a check with nothing new changes nothing
+  assert.deepEqual(st, { mark: 0, viewed: true });
+  st = advanceMark(st, 50, 1);           // next batch: everything up to 50 is now old
+  assert.deepEqual(st, { mark: 50, viewed: false });
+  assert.deepEqual(advanceMark({}, 5, 1), { mark: 0, viewed: false }, 'defaults for older saved data');
 });

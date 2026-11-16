@@ -68,3 +68,16 @@ export const AUTO_CHECK_GAP = 5 * 60e3;
 export function shouldAutoCheck({ user, enabled, online, lastCheck = 0, now = Date.now() }) {
   return !!user && enabled !== false && online !== false && now - lastCheck >= AUTO_CHECK_GAP;
 }
+
+/** Games played after the "seen up to" mark (createdAt ms). */
+export const newGames = (games, mark = 0) => games.filter(g => g.t > mark);
+
+/**
+ * Move the "new" mark after a fetch that added `added` games. If you looked at the review
+ * since the last batch arrived (viewed), that batch becomes old: the mark moves to the newest
+ * game before this fetch. If you haven't looked yet, the mark stays so unseen batches add up.
+ */
+export function advanceMark({ mark = 0, viewed = false }, prevLast, added) {
+  if (!added || !viewed) return { mark, viewed };
+  return { mark: prevLast, viewed: false };
+}
