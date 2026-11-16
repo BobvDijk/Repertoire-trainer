@@ -1,0 +1,129 @@
+:root{--bg:#f4f3ef;--card:#fff;--tx:#1d1d1b;--mut:#6b6a66;--bd:#dcdad3;--ac:#3b7d4f;--acx:#fff;--hl:#e9efe0;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#161715;--card:#202220;--tx:#e8e7e2;--mut:#9a9890;--bd:#34362f;--ac:#6dbb82;--acx:#10180f;--hl:#2c3a2d}}
+:root[data-theme="dark"]{--bg:#161715;--card:#202220;--tx:#e8e7e2;--mut:#9a9890;--bd:#34362f;--ac:#6dbb82;--acx:#10180f;--hl:#2c3a2d}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--tx);font:15px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.app{max-width:1100px;margin:0 auto;padding:16px}
+h1{font-size:18px;margin:0 0 12px;font-weight:600;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.wrap{display:grid;grid-template-columns:minmax(280px,min(88vh,620px)) 1fr;gap:20px;align-items:start}
+.wrap>*{min-width:0}
+@media(max-width:760px){
+.app{padding:8px 8px calc(8px + env(safe-area-inset-bottom,0px))}
+h1{font-size:16px;margin-bottom:8px}
+.wrap{grid-template-columns:minmax(0,1fr);gap:10px}
+.board{border-radius:4px}
+.card{padding:10px;margin-bottom:8px}
+button,select{font-size:16px;min-height:44px}
+.ctl{gap:6px;flex-wrap:nowrap}
+.ctl button{flex:1 1 0;padding:7px 4px;min-width:0}
+.ctl button.p{flex:2 1 0;min-width:0}
+.row label{flex:1 1 100%}
+.row label input[type=range]{flex:1;width:auto;min-width:0}
+#chap{width:100%}
+.moves{max-height:130px}
+.kbd{display:none}
+#empty textarea{font-size:16px}
+.drop{padding:18px}
+}
+.board{container-type:inline-size;display:grid;grid-template-columns:repeat(8,minmax(0,1fr));grid-template-rows:repeat(8,minmax(0,1fr));aspect-ratio:1;width:100%;min-width:0;border-radius:6px;overflow:hidden;border:1px solid var(--bd)}
+.sq{position:relative;display:flex;align-items:center;justify-content:center;min-width:0;font-family:"Segoe UI Symbol","Noto Sans Symbols 2","Apple Symbols","DejaVu Sans",sans-serif;font-size:min(10.5vw,64px);font-size:10cqw;line-height:1;user-select:none;-webkit-user-select:none}
+.l{background:#edeeff}.d{background:#82a1d9}
+.sq.hl.l,.sq.hl.d{background:#cfe496}
+.sq i{position:absolute;font:normal 600 10px system-ui;font-size:max(9px,2.5cqw);font-weight:700;opacity:1}
+.sq i.f{left:4%;bottom:1%}.sq i.r{right:4%;top:2%}
+.l i{color:#9f7757}.d i{color:#ffe8c2}
+.sq svg{width:100%;height:100%;display:block;pointer-events:none;position:relative;z-index:1}
+.sq svg.mv{z-index:6}
+.sq i{z-index:2}
+.sq{cursor:pointer}
+.sq.sel{box-shadow:inset 0 0 0 .6cqw #14551e}
+.sq.tgt::after{content:'';position:absolute;width:30%;height:30%;border-radius:50%;background:rgba(20,85,30,.55);z-index:3}
+.sq.tgt.cap::after{width:100%;height:100%;border-radius:0;background:none;box-shadow:inset 0 0 0 .8cqw rgba(20,85,30,.55)}
+.sq.chk::before{content:'';position:absolute;inset:0;background:radial-gradient(ellipse at center,#f00 0%,#e70000 25%,rgba(169,0,0,0) 89%)}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:10px;padding:14px;margin-bottom:12px}
+.row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+button,select{font:inherit;color:var(--tx);background:var(--card);border:1px solid var(--bd);border-radius:8px;padding:7px 12px;cursor:pointer}
+button:hover{border-color:var(--ac)}
+button.p{background:var(--ac);color:var(--acx);border-color:var(--ac);min-width:84px;font-weight:600}
+.ctl{justify-content:center;margin-bottom:12px}
+label{display:flex;align-items:center;gap:6px;color:var(--mut);font-size:13px}
+input[type=range]{accent-color:var(--ac);width:130px}
+.title{font-weight:600}.sub{color:var(--mut);font-size:13px}
+.moves{max-height:210px;overflow:auto;line-height:2}
+.moves b{color:var(--mut);font-weight:500;margin:0 3px 0 8px;font-size:13px}
+.moves span{padding:2px 5px;border-radius:5px;cursor:pointer}
+.moves span.on{background:var(--ac);color:var(--acx)}
+.cm{min-height:44px;font-size:14px;color:var(--tx)}
+#empty textarea{width:100%;min-height:110px;font:12px monospace;background:var(--bg);color:var(--tx);border:1px solid var(--bd);border-radius:8px;padding:8px}
+.drop{border:2px dashed var(--bd);border-radius:12px;padding:26px;text-align:center;color:var(--mut)}
+.drop.over{border-color:var(--ac);background:var(--hl)}
+.hide{display:none!important}
+button.p{border-radius:999px;padding:8px 20px}
+#pp,#pl,#sb,#sf,#nl{display:inline-flex;align-items:center;justify-content:center;gap:7px}
+#pp{min-width:112px}
+body.quizq #ex,body.quizq #mv,body.quizq #cm,body.quizq #tree,body.quizq #tabs{display:none}
+body.glance #tabs,body.glance #tree{display:none}
+#tree{max-height:360px;overflow:auto;font-size:14px;line-height:1.6}
+.tn0{margin-bottom:10px}
+.tr1{display:flex;gap:6px;align-items:flex-start;padding:1px 0}
+.tg,.tg0{flex:none;width:18px;height:18px;margin-top:3px;border-radius:50%;font-size:13px;line-height:16px;text-align:center}
+.tg{border:1px solid var(--bd);background:var(--card);cursor:pointer;user-select:none}
+.tb{margin-left:8px;padding-left:12px;border-left:1px solid var(--bd)}
+.tn.col>.tb{display:none}
+.tmv{min-width:0}
+.tm,.tr{cursor:pointer;border-radius:5px;padding:0 3px}
+.tm:hover,.tr:hover{background:var(--hl)}
+.tm.on{background:var(--ac);color:var(--acx)}
+.tr{color:var(--mut)}
+.rvr{padding:6px 8px;border-radius:8px;cursor:pointer}.rvr:hover{background:var(--hl)}
+#rv h4{margin:12px 0 4px;font-size:14px}#rv summary{cursor:pointer}
+#gex,#big{display:none}
+body.glance #gex{display:block;position:fixed;top:calc(8px + env(safe-area-inset-top,0px));right:8px;z-index:20;opacity:.6}
+body.glance h1,body.glance #ex,body.glance #rv,body.glance .kbd,body.glance #mv,body.glance #chap,body.glance .card:has(#spd){display:none}
+body.glance #big{display:block;font-size:clamp(28px,6vw,64px);font-weight:700;line-height:1.1;margin:6px 0}
+body.glance #lname{font-size:20px}
+body.glance .cm{font-size:clamp(16px,2.4vw,26px)}
+body.glance .app{max-width:none;padding:12px}
+@media(min-width:761px){body.glance .wrap{grid-template-columns:min(94vh,60vw) 1fr;gap:28px}}
+.hint{color:var(--mut);font-size:12px;text-align:center}
+
+/* ---- phone layout: board stays on screen, panel scrolls underneath ---- */
+@media(max-width:760px){
+.app{height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px));display:flex;flex-direction:column;overflow:hidden;padding:6px 8px}
+#empty{overflow:auto}
+h1{flex:none;margin:0 0 6px;font-size:15px}
+#player{flex:1;min-height:0;display:flex;flex-direction:column;gap:6px}
+#player>div:first-child{flex:none;width:min(100%,52dvh);margin:0 auto}
+#player>div:last-child{flex:1;min-height:0;overflow:auto;display:flex;flex-direction:column;gap:8px;-webkit-overflow-scrolling:touch}
+#player>div:last-child>*{order:9;flex:none}
+#player>div:last-child>#qz{order:0}
+#player>div:last-child>.ctl{order:1;position:sticky;top:0;z-index:4;background:var(--bg);padding:2px 0;margin:0}
+#player>div:last-child>#cm{order:2}
+#player>div:last-child>#tabs{order:3;margin:0}
+#player>div:last-child>#mv,#player>div:last-child>#tree{order:4}
+#player>div:last-child>.card:first-child{order:5}
+#player>div:last-child>#ex{order:6}
+#player>div:last-child>#rv{order:7}
+#mv,#tree{max-height:none;overflow:visible}
+#cm:empty{display:none}
+}
+/* phone fixes (checked in Chromium at 320/390/412px portrait and 750px landscape) */
+@media(max-width:760px){
+#player{align-items:stretch}              /* desktop grid uses align-items:start; in a flex column that let panels grow past the screen */
+#player>div{min-width:0;max-width:100%}
+.ctl button,.ctl button.p,#pp{min-width:0;padding-left:2px;padding-right:2px}
+#fl{font-size:14px;white-space:nowrap}
+h1{flex-wrap:nowrap}
+h1>span:first-child{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+h1 .row{flex-wrap:nowrap;gap:4px;flex:none}
+h1 .row button{min-height:34px;padding:3px 8px;font-size:13px}
+}
+@media(max-width:760px) and (orientation:landscape){
+#player{flex-direction:row}
+#player>div:first-child{height:100%;width:auto;aspect-ratio:1;flex:none;margin:0}
+}
+/* the move list has no spaces between moves: make each move its own box so lines wrap between moves, never inside "O-O" */
+.moves b,.moves span{display:inline-block;white-space:nowrap}
+@media(max-width:360px){#fl{font-size:0}#fl::before{content:'\21C5';font-size:18px}}

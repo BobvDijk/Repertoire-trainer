@@ -1,0 +1,10 @@
+{
+  "name": "repertoire-trainer",
+  "private": true,
+  "type": "module",
+  "description": "Chess opening repertoire player and trainer (static site, no build step).",
+  "scripts": {
+    "test": "node --test",
+    "serve": "python3 -m http.server 8000"
+  }
+}
