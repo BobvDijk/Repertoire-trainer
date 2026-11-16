@@ -4,7 +4,7 @@ import { buildLines } from './pgn.js';
 import { posKey, prepare, posKeys, edgeKeys, pathText, isWhitePly, plyNumber,
   buildRepIndex, lineThrough, buildGraph, spanTree } from './position.js';
 import { linePriority, smartStartIndex, recordReview, smartOrder, poolEdgeKeys, dueSummary } from './smart.js';
-import { lichessGamesUrl, parseLichessGames, mergeGames, summarize } from './review.js';
+import { lichessGamesUrl, parseLichessGames, mergeGames, summarize, shouldAutoCheck } from './review.js';
 import * as Q from './quiz.js';
 import { unlockAudio, thump, speak } from './effects.js';
 
@@ -298,8 +298,8 @@ document.addEventListener('keydown', e => {
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && playing && S.stay && !wake) { setPlay(false); setPlay(true); } });
 
 /* ---------- Lichess game review ---------- */
-const RV = { u: '', games: [], last: 0, res: null, ...load('rp-lichess', {}) };
-const rvSave = () => store('rp-lichess', { u: RV.u, games: RV.games, last: RV.last });
+const RV = { u: '', games: [], last: 0, checked: 0, auto: true, res: null, busy: false, ...load('rp-lichess', {}) };
+const rvSave = () => store('rp-lichess', { u: RV.u, games: RV.games, last: RV.last, checked: RV.checked, auto: RV.auto });
 function rvRender() {
   const out = $('#rvout'), cf = $('#rvc').value, G = RV.games.filter(g => !cf || g.c === cf);
   if (!G.length || !lines.length) { out.innerHTML = '<div class="sub">Load a repertoire, enter your username and press Fetch.</div>'; RV.res = null; return; }
@@ -313,19 +313,31 @@ function rvRender() {
     + sec('opp', '➕ Opponent moves not covered', o => 'They played <b>' + o.r.san + '</b>')
     + sec('end', '⛔ Where your lines end', o => 'Out of book: ' + (o.r.mine ? 'you' : 'they') + ' played <b>' + o.r.san + '</b>');
 }
-async function rvFetch() {
-  const u = $('#rvu').value.trim(), st = $('#rvst'); if (!u) return;
+// auto = quiet check for new games when the app is opened or brought back to the front.
+async function rvFetch(auto) {
+  const st = $('#rvst'), u = auto ? RV.u : $('#rvu').value.trim();
+  if (!u || RV.busy) return;
+  if (auto && !shouldAutoCheck({ user: u, enabled: RV.auto, online: navigator.onLine, lastCheck: RV.checked })) return;
   if (u.toLowerCase() !== (RV.u || '').toLowerCase()) { RV.games = []; RV.last = 0; }
-  RV.u = u; st.textContent = 'Fetching games…';
+  RV.u = u; RV.busy = true; st.textContent = auto ? 'Checking Lichess for new games…' : 'Fetching games…';
   try {
     const r = await fetch(lichessGamesUrl(u, $('#rvn').value, RV.last), { headers: { Accept: 'application/x-ndjson' } });
-    if (!r.ok) throw new Error(r.status === 404 ? 'User not found.' : 'Lichess answered ' + r.status + '.');
+    if (!r.ok) throw new Error(r.status === 404 ? 'User not found.' : r.status === 429 ? 'Lichess asks to wait a minute (rate limit).' : 'Lichess answered ' + r.status + '.');
     const { games: add, last } = parseLichessGames(await r.text(), u, RV.last);
-    RV.last = last; RV.games = mergeGames(RV.games, add);
-    rvSave(); st.textContent = add.length + ' new games fetched · ' + RV.games.length + ' stored.'; rvRender();
-  } catch (e) { st.textContent = 'Could not fetch games: ' + e.message + (navigator.onLine === false ? ' (you are offline)' : ''); }
+    RV.last = last; RV.games = mergeGames(RV.games, add); RV.checked = Date.now();
+    rvSave();
+    st.textContent = auto
+      ? (add.length ? add.length + ' new game' + (add.length > 1 ? 's' : '') + ' since your last visit' : 'No new games') + ' · checked ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+      : add.length + ' new games fetched · ' + RV.games.length + ' stored.';
+    $('#rvnew').textContent = auto && add.length && !$('#rv').open ? ' \u00b7 ' + add.length + ' new' : '';
+    rvRender();
+  } catch (e) { st.textContent = (auto ? 'Automatic check failed: ' : 'Could not fetch games: ') + e.message + (navigator.onLine === false ? ' (you are offline)' : ''); }
+  finally { RV.busy = false; }
 }
-$('#rvu').value = RV.u || ''; $('#rvgo').onclick = rvFetch; $('#rvc').onchange = rvRender;
+$('#rvu').value = RV.u || ''; $('#rvgo').onclick = () => rvFetch(false); $('#rvc').onchange = rvRender;
+$('#rvauto').checked = RV.auto; $('#rvauto').onchange = e => { RV.auto = e.target.checked; rvSave(); };
+$('#rv').addEventListener('toggle', () => { if ($('#rv').open) $('#rvnew').textContent = ''; });
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') rvFetch(true); });
 $('#rvout').onclick = e => {
   if (e.target.closest('a')) return;
   if (e.target.closest('#qzgo')) { if (RV.res && RV.res.dev.length) qzStart(RV.res.dev, 0); return; }
@@ -435,3 +447,4 @@ $('#tree').onclick = e => {
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
 
 try { if (TX.w || TX.b) start(); else impStatus(); } catch (e) { console.error(e); }
+rvFetch(true);

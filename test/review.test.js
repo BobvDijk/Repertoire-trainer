@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildLines } from '../src/pgn.js';
 import { buildRepIndex } from '../src/position.js';
-import { lichessGamesUrl, parseLichessGames, mergeGames, gameText, summarize } from '../src/review.js';
+import { lichessGamesUrl, parseLichessGames, mergeGames, gameText, summarize, shouldAutoCheck, AUTO_CHECK_GAP } from '../src/review.js';
 
 const g = (id, white, black, moves, extra = {}) => JSON.stringify({
   id, variant: 'standard', moves, createdAt: extra.t || 1,
@@ -60,4 +60,15 @@ test('summarize groups deviations by position and move with W/D/L', () => {
   assert.deepEqual(d.r.exp, ['Bb5']);
   assert.equal(s.rows.opp[0].r.san, 'c5');
   assert.equal(s.rows.end[0].r.san, 'a6'); assert.equal(s.rows.end[0].d, 1);
+});
+
+test('shouldAutoCheck: needs a username, the setting on, a connection, and 5 minutes since the last check', () => {
+  const now = 1_700_000_000_000, base = { user: 'me', enabled: true, online: true, lastCheck: 0, now };
+  assert.equal(shouldAutoCheck(base), true);
+  assert.equal(shouldAutoCheck({ ...base, user: '' }), false);
+  assert.equal(shouldAutoCheck({ ...base, enabled: false }), false);
+  assert.equal(shouldAutoCheck({ ...base, online: false }), false);
+  assert.equal(shouldAutoCheck({ ...base, lastCheck: now - AUTO_CHECK_GAP + 1 }), false);
+  assert.equal(shouldAutoCheck({ ...base, lastCheck: now - AUTO_CHECK_GAP }), true);
+  assert.equal(shouldAutoCheck({ user: 'me', now }), true, 'on by default');
 });
