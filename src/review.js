@@ -60,3 +60,11 @@ export function summarize(games, repFor) {
   for (const t of ['dev', 'opp', 'end']) rows[t] = Object.values(A[t]).sort((x, y) => y.n - x.n);
   return { checked, ok, rows };
 }
+
+/** Minimum time between automatic checks, so switching apps back and forth doesn't hammer Lichess. */
+export const AUTO_CHECK_GAP = 5 * 60e3;
+
+/** Should the app quietly check Lichess for new games now? */
+export function shouldAutoCheck({ user, enabled, online, lastCheck = 0, now = Date.now() }) {
+  return !!user && enabled !== false && online !== false && now - lastCheck >= AUTO_CHECK_GAP;
+}
