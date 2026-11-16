@@ -111,3 +111,11 @@ export function buildLines(text, side, chapterOffset = 0, opts = {}) {
   });
   return { chapters, lines, skipped };
 }
+
+/** Recount lines per chapter after lines were removed: sets line.k / line.of and chapter.count. */
+export function renumber(lines, chapters) {
+  const n = chapters.map(() => 0);
+  for (const l of lines) l.k = ++n[l.g];
+  for (const l of lines) l.of = n[l.g];
+  chapters.forEach((c, i) => { c.count = n[i]; });
+}

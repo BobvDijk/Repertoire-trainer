@@ -1,8 +1,8 @@
 // UI: wires the pure modules to the page. Ported from the original single-file version.
 import { Chess } from '../vendor/chess.mjs';
-import { buildLines } from './pgn.js';
+import { buildLines, renumber } from './pgn.js';
 import { posKey, prepare, posKeys, edgeKeys, pathText, isWhitePly, plyNumber,
-  buildRepIndex, lineThrough, buildGraph, spanTree } from './position.js';
+  buildRepIndex, lineThrough, buildGraph, spanTree, removeMoves } from './position.js';
 import { linePriority, smartStartIndex, recordReview, smartOrder, poolEdgeKeys, dueSummary } from './smart.js';
 import { lichessGamesUrl, parseLichessGames, mergeGames, summarize, shouldAutoCheck, newGames, advanceMark } from './review.js';
 import * as Q from './quiz.js';
@@ -41,7 +41,7 @@ function setAnchor(L, j) {
 function renderEx() {
   const on = !!anchor;
   $('#exback').classList.toggle('hide', !on || anchor.j < 1); $('#exoff').classList.toggle('hide', !on);
-  if (!on) { exKids = []; $('#expath').textContent = 'Tap a piece, then a square, to follow a move in your repertoire — or press ⚓ to explore from here.'; $('#exmv').innerHTML = ''; return; }
+  if (!on) { exKids = []; $('#expath').textContent = 'Drag a piece (or tap it, then a square) to follow a move in your repertoire — or press ⚓ to explore from here.'; $('#exmv').innerHTML = ''; return; }
   const g = {}; let ends = 0;
   anchor.m.forEach((i, l) => { if (i >= l.n) { ends++; return; } const s = l.mv[i + 1].san; (g[s] = g[s] || { n: 0, l, i, s }).n++; });
   exKids = Object.values(g).sort((a, b) => b.n - a.n);
@@ -111,6 +111,7 @@ function show(a) {
   const on = $('#mv span.on');
   if (on) { const box = $('#mv'); const t = on.offsetTop - box.offsetTop; if (t < box.scrollTop || t > box.scrollTop + box.clientHeight - 40) box.scrollTop = t - 60; }
   $('#cm').textContent = cur.cm[mi] || '';
+  $('#rmmv').disabled = mi < 1; if (rmArm) { rmArm = null; $('#rmmv').textContent = '\ud83d\uddd1 Remove move'; }
   $('#big').textContent = mi > 0 ? plyNumber(cur, mi) + (isWhitePly(cur, mi) ? '. ' : '… ') + cur.mv[mi].san : 'Start';
   if (mi === cur.n && cur.n > 0 && !seen.has(cur.id)) { seen.add(cur.id); saveSeen(); }
   { const k = posKeys(cur)[mi]; if (!seenPos.has(k)) { seenPos.add(k); savePos(); } }
@@ -172,6 +173,10 @@ const repFor = c => REPC[c] || (REPC[c] = buildRepIndex(lines, c));
 // Per-side import options; the stored PGN is re-parsed with them on every load.
 const OPT = { w: { mainOnly: false }, b: { mainOnly: false }, ...load('rp-pgnopt', {}) };
 const SKIP = { w: 0, b: 0 };
+// Moves removed from the repertoire, per side: [{k: edge key, label: '3.Bc4'}]. The stored PGN is
+// not changed; removals are applied on every load, so they can be undone.
+const RM = { w: [], b: [], ...load('rp-removed', {}) };
+const saveRM = () => store('rp-removed', RM);
 function buildAll() {
   lines = []; chapters = []; REPC = {}; TSIG = '';
   const counts = [0, 0];
@@ -179,18 +184,58 @@ function buildAll() {
     SKIP[sd] = 0;
     if (!TX[sd]) return;
     const r = buildLines(TX[sd], sd, chapters.length, OPT[sd]);
+    if (RM[sd].length) r.lines = removeMoves(r.lines, new Set(RM[sd].map(x => x.k))).lines;
     chapters.push(...r.chapters); lines.push(...r.lines); counts[x] = r.lines.length; SKIP[sd] = r.skipped;
   });
+  renumber(lines, chapters);
   return counts;
 }
 function impStatus() {
   const one = sd => { const n = lines.filter(l => l.side === sd).length; return n ? n + ' lines' + (SKIP[sd] ? ' (' + SKIP[sd] + ' alternative move' + (SKIP[sd] > 1 ? 's' : '') + ' skipped)' : '') : 'not loaded'; };
   $('#impst').textContent = 'White: ' + one('w') + ' \u00b7 Black: ' + one('b');
+  const n = RM[$('#side').value].length;
+  $('#rmrestore').classList.toggle('hide', !n); $('#rmrestore').textContent = 'Restore ' + n + ' removed move' + (n > 1 ? 's' : '');
 }
 function refreshPlayer() {
-  $('#chap').innerHTML = `<option value="-1">All chapters (${lines.length} lines)</option>` + chapters.map((c, i) => `<option value="${i}">${c.name.replace(/</g, '&lt;')} (${c.count})</option>`).join('');
+  fillChapters();
   setPlay(false); setPool(-1); rvRender();
 }
+function fillChapters() {
+  $('#chap').innerHTML = `<option value="-1">All chapters (${lines.length} lines)</option>` + chapters.map((c, i) => c.count ? `<option value="${i}">${c.name.replace(/</g, '&lt;')} (${c.count})</option>` : '').join('');
+  $('#chap').value = String(baseCi);
+}
+// After removing or restoring moves: rebuild, then go back to position `key` (if it still exists).
+function rebuildAt(key, msg) {
+  buildAll(); impStatus(); fillChapters(); rvRender();
+  if (baseCi >= 0 && !chapters[baseCi].count) { baseCi = -1; $('#chap').value = '-1'; }
+  if (playing) setPlay(false);
+  if (!lines.length) { $('#load2').click(); return; }
+  const l = lineThrough(base(), key) || lineThrough(lines, key);
+  if (l) { if (!base().includes(l)) { baseCi = -1; $('#chap').value = '-1'; } setAnchor(l, posKeys(l).indexOf(key)); } else setPool(baseCi);
+  if (msg) $('#expath').innerHTML = msg;
+}
+// Remove the move on the board (and everything after it) from the repertoire. Two taps to confirm.
+let rmArm = null;
+$('#rmmv').onclick = () => {
+  if (!cur || mi < 1) return;
+  const k = edgeKeys(cur)[mi], sd = cur.side, b = $('#rmmv');
+  const label = plyNumber(cur, mi) + (isWhitePly(cur, mi) ? '.' : '\u2026') + cur.mv[mi].san;
+  if (rmArm !== k) {
+    const n = lines.filter(l => l.side === sd && edgeKeys(l).includes(k)).length;
+    rmArm = k; b.textContent = 'Remove ' + label + ' (' + n + ' line' + (n > 1 ? 's' : '') + ')? Tap again';
+    clearTimeout(b.t); b.t = setTimeout(() => { rmArm = null; b.textContent = '\ud83d\uddd1 Remove move'; }, 4000);
+    return;
+  }
+  rmArm = null; clearTimeout(b.t); b.textContent = '\ud83d\uddd1 Remove move';
+  RM[sd].push({ k, label }); saveRM();
+  rebuildAt(posKeys(cur)[mi - 1], 'Removed ' + label + ' from your ' + (sd === 'b' ? 'Black' : 'White') + ' repertoire. <button id="rmundo" style="padding:3px 12px;min-height:0;font-size:13px">Undo</button>');
+};
+$('#expath').onclick = e => {
+  if (!e.target.closest('#rmundo')) return;
+  const sd = cur ? cur.side : 'w', last = RM[sd].pop(); if (!last) return; saveRM();
+  rebuildAt(posKeys(cur)[mi], 'Restored ' + last.label + '.');
+};
+$('#rmrestore').onclick = () => { const sd = $('#side').value; RM[sd] = []; saveRM(); buildAll(); impStatus(); if (lines.length) refreshPlayer(); };
 function start(text, side) {
   if (text !== undefined) {
     const prev = TX[side]; TX[side] = text; const r = buildAll();
@@ -202,7 +247,7 @@ function start(text, side) {
   refreshPlayer(); return true;
 }
 // "Skip alternative moves for my side": a per-side setting, applied right away to a loaded repertoire.
-const syncMainOnly = () => { $('#mainonly').checked = !!OPT[$('#side').value].mainOnly; };
+const syncMainOnly = () => { $('#mainonly').checked = !!OPT[$('#side').value].mainOnly; impStatus(); };
 $('#side').onchange = syncMainOnly;
 $('#mainonly').onchange = e => {
   const sd = $('#side').value; OPT[sd] = { ...OPT[sd], mainOnly: e.target.checked }; store('rp-pgnopt', OPT);

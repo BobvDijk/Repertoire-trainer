@@ -141,3 +141,45 @@ export function spanTree(g, key, vis = new Set([key]), d = 0) {
   }
   return n;
 }
+
+/** A copy of a line cut down to its first m moves (cached positions dropped, new id). */
+export function truncateLine(L, m) {
+  const { pos, mv, pk, ek, n, black, num, bad, ...rest } = L;
+  const sans = L.sans.slice(0, m);
+  return { ...rest, sans, cm: L.cm.slice(0, m + 1), ar: L.ar.slice(0, m + 1), id: hid(L.side + L.name + '|' + sans.join(' ')) };
+}
+
+/**
+ * Remove moves from a repertoire. `removed` is a Set of edge keys (see edgeKeys): a move in a
+ * given position, so the move disappears whatever move order reaches that position.
+ * Lines through a removed move are cut just before it; a cut line that is now empty, a duplicate,
+ * or the start of another line in the same chapter is dropped. Untouched lines are returned as is
+ * (same objects and ids, so progress is kept). Returns {lines, changed: number of lines affected}.
+ */
+export function removeMoves(lines, removed) {
+  if (!removed || !removed.size) return { lines, changed: 0 };
+  let changed = 0;
+  const out = [];
+  for (const l of lines) {
+    const ek = edgeKeys(l);
+    let c = -1;
+    for (let i = 1; i <= l.n; i++) if (removed.has(ek[i])) { c = i; break; }
+    if (c < 0) { out.push(l); continue; }
+    changed++;
+    if (c > 1) { const t = truncateLine(l, c - 1); t.cut = true; out.push(t); }
+  }
+  const seen = new Set();
+  const covered = t => {
+    const s = t.sans.join(' ');
+    return out.some(o => o !== t && o.g === t.g && o.sans.length > t.sans.length && o.sans.slice(0, t.sans.length).join(' ') === s);
+  };
+  return {
+    changed,
+    lines: out.filter(l => {
+      if (!l.cut) return true;
+      const k = l.g + '|' + l.sans.join(' ');
+      if (seen.has(k) || covered(l)) return false;
+      seen.add(k); delete l.cut; return true;
+    }),
+  };
+}
