@@ -4,8 +4,8 @@ import { buildLines, renumber, writePgn } from './pgn.js';
 import { posKey, prepare, posKeys, edgeKeys, pathText, isWhitePly, plyNumber,
   buildRepIndex, lineThrough, buildGraph, spanTree, removeMoves } from './position.js';
 import { linePriority, smartStartIndex, recordReview, smartOrder, poolEdgeKeys, dueSummary } from './smart.js';
-import { lichessGamesUrl, parseLichessGames, mergeGames, summarize, shouldAutoCheck, newGames, advanceMark,
-  newestGame, migrateReview, addAccount, removeAccount, gameKey } from './review.js';
+import { lichessGamesUrl, parseLichessGames, mergeGames, summarize, shouldAutoCheck, migrateReview, addAccount,
+  removeAccount, gameKey, toReview, capReviewed, fetchMax, FIRST_FETCH } from './review.js';
 import * as Q from './quiz.js';
 import { unlockAudio, thump, speak } from './effects.js';
 import { createSync } from './sync.js';
@@ -466,64 +466,71 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 
 /* ---------- Lichess game review (one or more accounts) ---------- */
 // accs: [{u, last}] (last = newest game time fetched for that account); games are tagged with
-// their account (g.a, lowercase). mark/viewed: games played after `mark` count as new (advanceMark).
-// view: 'new' | 'all'; af: account filter ('' = all accounts).
-const RV = { accs: [], games: [], checked: 0, auto: true, mark: 0, viewed: false, view: 'new', af: '', res: null, busy: false, ...migrateReview(load('rp-lichess', {})) };
-const rvStore = () => store('rp-lichess', { accs: RV.accs, games: RV.games, checked: RV.checked, auto: RV.auto, mark: RV.mark, viewed: RV.viewed, view: RV.view, af: RV.af });
+// their account (g.a, lowercase). REV: keys of games already reviewed. view: 'review' | 'all';
+// af: account filter ('' = all accounts).
+const RV = { accs: [], games: [], checked: 0, reviewed: [], view: 'review', af: '', res: null, busy: false, ...migrateReview(load('rp-lichess', {})) };
+const REV = new Set(RV.reviewed);
+const rvStore = () => store('rp-lichess', { accs: RV.accs, games: RV.games, checked: RV.checked, reviewed: capReviewed([...REV]), view: RV.view, af: RV.af });
 const rvSave = () => { rvStore(); syncDirty('state'); };
 const accName = a => (RV.accs.find(x => x.u.toLowerCase() === a) || { u: a }).u;
-const rvNewCount = () => newGames(RV.games, RV.mark).length;
-// "· N new" in the closed review header while there are new games you haven't looked at.
-function rvBadge() { const n = rvNewCount(); $('#rvnew').textContent = !$('#rv').open && !RV.viewed && n ? ' · ' + n + ' new' : ''; }
-function rvMarkViewed() { if ($('#rv').open && !RV.viewed) { RV.viewed = true; rvSave(); } rvBadge(); }
-let accArm = null; // account whose × waits for the confirming tap
+const esc = t => String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+const smallBtn = (id, t, p) => '<button id="' + id + '"' + (p ? ' class="p"' : '') + ' style="padding:3px 12px;min-height:0;font-size:13px;margin-left:6px">' + t + '</button>';
+function markReviewed(keys) { let n = 0; for (const k of keys) if (!REV.has(k)) { REV.add(k); n++; } if (n) rvSave(); return n; }
+let accArm = null, addOpen = false; // account whose × waits for the confirming tap; "+ Add account" opened
 function rvAccounts() {
-  $('#rvaccs').innerHTML = RV.accs.map(x => '<span class="acc">' + x.u.replace(/</g, '&lt;') + ' <button data-u="' + x.u.replace(/"/g, '') + '" title="Remove this account">' + (accArm === x.u ? 'Remove?' : '×') + '</button></span>').join('');
-  const many = RV.accs.length > 1;
+  $('#rvaccs').innerHTML = RV.accs.map(x => '<span class="acc">' + esc(x.u) + ' <button data-u="' + esc(x.u) + '" title="Remove this account">' + (accArm === x.u ? 'Remove?' : '×') + '</button></span>').join('')
+    + (RV.accs.length ? '<button id="rvplus" style="padding:3px 12px;min-height:0;font-size:13px">+ Add account</button>' : '');
+  // the username box is only needed to link an account
+  $('#rvaddrow').classList.toggle('hide', RV.accs.length > 0 && !addOpen);
+  $('#rvfilt').classList.toggle('hide', !RV.games.length);
   if (!RV.accs.some(x => x.u.toLowerCase() === RV.af)) RV.af = '';
-  $('#rva').classList.toggle('hide', !many);
-  $('#rva').innerHTML = '<option value="">All accounts</option>' + RV.accs.map(x => '<option value="' + x.u.toLowerCase().replace(/"/g, '') + '">' + x.u.replace(/</g, '&lt;') + '</option>').join('');
-  $('#rva').value = RV.af;
-  $('#rvgo').textContent = many ? 'Fetch all' : 'Fetch';
-  $('#rvgo').classList.toggle('hide', !RV.accs.length);
+  $('#rva').classList.toggle('hide', RV.accs.length < 2);
+  $('#rva').innerHTML = '<option value="">All accounts</option>' + RV.accs.map(x => '<option value="' + esc(x.u.toLowerCase()) + '">' + esc(x.u) + '</option>').join('');
+  $('#rva').value = RV.af; $('#rvv').value = RV.view === 'all' ? 'all' : 'review';
 }
 function rvRender() {
   rvAccounts();
-  const out = $('#rvout'), cf = $('#rvc').value, onlyNew = RV.view !== 'all';
-  const G = (onlyNew ? newGames(RV.games, RV.mark) : RV.games).filter(g => (!cf || g.c === cf) && (!RV.af || g.a === RV.af));
-  rvMarkViewed();
-  if (!RV.games.length || !lines.length) { out.innerHTML = '<div class="sub">' + (RV.accs.length ? 'Load a repertoire and press Fetch.' : 'Add your Lichess username to review your games.') + '</div>'; RV.res = null; return; }
-  const markBtn = '<button id="rvmark" style="padding:3px 12px;min-height:0;font-size:13px;margin-left:6px">Mark as seen</button>';
-  const head = onlyNew
-    ? '<div class="sub">' + (G.length ? G.length + ' new game' + (G.length > 1 ? 's' : '') + ' since you last looked' + markBtn
-      : 'No new games since you last looked. <button id="rvall" style="padding:3px 12px;min-height:0;font-size:13px">Show all games</button>') + '</div>'
-    : '';
-  if (!G.length) { out.innerHTML = head || '<div class="sub">No games for this selection.</div>'; RV.res = null; return; }
+  const out = $('#rvout'), cf = $('#rvc').value, all = RV.view === 'all';
+  if (!RV.accs.length) { out.innerHTML = '<div class="sub">Add your Lichess username to review your games against your repertoire.</div>'; RV.res = null; $('#rvnew').textContent = ''; return; }
+  if (!lines.length) { out.innerHTML = '<div class="sub">Load a repertoire to review your games against it.</div>'; RV.res = null; return; }
+  // Games with nothing to review (stayed in the repertoire, or never reached it) count as reviewed.
+  const pend = toReview(RV.games, REV), ps = summarize(pend, repFor);
+  const issue = new Set(['dev', 'opp', 'end'].flatMap(t => ps.rows[t].flatMap(o => o.ids)));
+  markReviewed(pend.filter(g => !issue.has(gameKey(g))).map(gameKey));
+  $('#rvnew').textContent = issue.size ? ' · ' + issue.size + ' to review' : '';
+  const G = (all ? RV.games : pend.filter(g => issue.has(gameKey(g)))).filter(g => (!cf || g.c === cf) && (!RV.af || g.a === RV.af));
+  if (!G.length) {
+    out.innerHTML = '<div class="sub">' + (all ? 'No games for this selection.' : 'Nothing to review — you’re all caught up.' + smallBtn('rvall', 'Show all games')) + '</div>';
+    RV.res = null; return;
+  }
   const { checked, ok, rows } = summarize(G, repFor); RV.res = rows;
-  const who = o => RV.accs.length > 1 ? ' · ' + accName(o.a).replace(/</g, '&lt;') : '';
+  const who = o => RV.accs.length > 1 ? ' · ' + esc(accName(o.a)) : '';
   const sec = (t, title, f) => {
     const a = rows[t];
-    return '<h4>' + title + ' (' + a.reduce((s, o) => s + o.n, 0) + ')</h4>' + (a.slice(0, 12).map((o, i) => '<div class="rvr" data-t="' + t + '" data-i="' + i + '"><div>' + f(o) + '</div><div class="sub">' + o.txt + ' · ×' + o.n + ' (W' + o.w + ' D' + o.d + ' L' + o.l + ')' + who(o) + ' · <a href="https://lichess.org/' + o.id + '/' + (o.c === 'w' ? 'white' : 'black') + '" target="_blank" rel="noopener">game</a></div></div>').join('') || '<div class="sub">None — nice.</div>');
+    if (!a.length && !all) return '';
+    return '<h4>' + title + ' (' + a.reduce((n, o) => n + o.n, 0) + ')</h4>' + ((all ? a.slice(0, 12) : a).map((o, i) =>
+      '<div class="rvr' + (o.ids.every(k => REV.has(k)) && all ? ' done' : '') + '" data-t="' + t + '" data-i="' + i + '"><div>' + f(o) + '</div><div class="sub">' + o.txt + ' · ×' + o.n + ' (W' + o.w + ' D' + o.d + ' L' + o.l + ')' + who(o) + ' · <a href="https://lichess.org/' + o.id + '/' + (o.c === 'w' ? 'white' : 'black') + '" target="_blank" rel="noopener">game</a></div></div>').join('') || '<div class="sub">None — nice.</div>');
   };
-  out.innerHTML = head + '<div class="sub">' + checked + ' of ' + G.length + ' games checked · ' + ok + ' stayed in your repertoire to the end</div>'
-    + sec('dev', '⚠ You left your repertoire <button class="p" id="qzgo" style="padding:3px 14px;min-height:0;font-size:13px;margin-left:6px">Quiz me</button>', o => 'You played <b>' + o.r.san + '</b> instead of ' + (o.r.exp.join(', ') || '—'))
-    + sec('opp', '➕ Opponent moves not covered', o => 'They played <b>' + o.r.san + '</b>')
-    + sec('end', '⛔ Where your lines end', o => 'Out of book: ' + (o.r.mine ? 'you' : 'they') + ' played <b>' + o.r.san + '</b>');
+  out.innerHTML = '<div class="sub">' + (all ? checked + ' of ' + G.length + ' games checked · ' + ok + ' stayed in your repertoire to the end'
+      : G.length + ' game' + (G.length > 1 ? 's' : '') + ' to review' + smallBtn('rvmark', 'Mark all as reviewed')) + '</div>'
+    + sec('dev', '⚠ You left your repertoire' + (rows.dev.length ? smallBtn('qzgo', 'Quiz me', true) : ''), o => 'You played <b>' + o.r.san + '</b> instead of ' + (o.r.exp.join(', ') || '—'))
+    + sec('opp', '↪ Opponent left your line early', o => 'They played <b>' + o.r.san + '</b>, which your repertoire doesn’t cover')
+    + sec('end', '✓ You got to the end of a line', o => 'Line finished, then ' + (o.r.mine ? 'you' : 'they') + ' played <b>' + o.r.san + '</b>');
 }
 // Fetch new games for the given accounts, one request at a time (Lichess asks apps not to run
-// several at once). auto = quiet check when the app is opened or brought back to the front.
+// several at once): the last 20 for a newly linked account, everything new since the last check
+// after that. auto = quiet check when the app or the review is opened.
 async function rvFetch(auto, only) {
   const st = $('#rvst'), accs = only ? RV.accs.filter(x => x.u === only) : RV.accs;
   if (!accs.length || RV.busy) return;
-  if (auto && !shouldAutoCheck({ user: accs.length, enabled: RV.auto, online: navigator.onLine, lastCheck: RV.checked })) return;
-  RV.busy = true; st.textContent = auto ? 'Checking Lichess for new games…' : 'Fetching games…';
-  const prevNewest = newestGame(RV.games), per = [], errs = [];
+  if (auto && !shouldAutoCheck({ user: accs.length, online: navigator.onLine, lastCheck: RV.checked })) return;
+  RV.busy = true; st.textContent = auto ? 'Checking Lichess for new games…' : 'Getting your last ' + FIRST_FETCH + ' games…';
+  const per = [], errs = [];
   let added = 0;
   try {
     for (const acc of accs) {
-      if (accs.length > 1) st.textContent = (auto ? 'Checking ' : 'Fetching ') + acc.u + '…';
       try {
-        const r = await fetch(lichessGamesUrl(acc.u, $('#rvn').value, acc.last), { headers: { Accept: 'application/x-ndjson' } });
+        const r = await fetch(lichessGamesUrl(acc.u, fetchMax(acc), acc.last), { headers: { Accept: 'application/x-ndjson' } });
         if (!r.ok) throw new Error(r.status === 404 ? 'user not found' : r.status === 429 ? 'Lichess asks to wait a minute (rate limit)' : 'Lichess answered ' + r.status);
         const { games: add, last } = parseLichessGames(await r.text(), acc.u, acc.last);
         const have = new Set(RV.games.map(gameKey)), fresh = add.filter(g => !have.has(gameKey(g))).length;
@@ -531,14 +538,11 @@ async function rvFetch(auto, only) {
         per.push(acc.u + ': ' + fresh);
       } catch (e) { errs.push({ u: acc.u, msg: e.message }); }
     }
-    Object.assign(RV, advanceMark(RV, prevNewest, added));
     if (!errs.length || per.length) RV.checked = Date.now();
     rvSave();
     const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-    const detail = accs.length > 1 && added ? ' (' + per.join(', ') + ')' : '';
-    let msg = auto
-      ? (added ? added + ' new game' + (added > 1 ? 's' : '') + ' since your last visit' : 'No new games') + detail + ' · checked ' + time
-      : added + ' new game' + (added === 1 ? '' : 's') + ' fetched' + detail + ' · ' + RV.games.length + ' stored.';
+    let msg = only ? 'Linked ' + only + ' · ' + added + ' game' + (added === 1 ? '' : 's') + ' fetched.'
+      : (added ? added + ' new game' + (added > 1 ? 's' : '') + (accs.length > 1 ? ' (' + per.join(', ') + ')' : '') : 'No new games') + ' · checked ' + time;
     if (errs.length) msg += ' ' + errs.map(e => (accs.length > 1 ? e.u + ': ' : '') + e.msg).join('; ') + '.' + (navigator.onLine === false ? ' (you are offline)' : '');
     st.textContent = msg;
     rvRender();
@@ -557,13 +561,14 @@ async function rvAdd() {
     st.textContent = 'Lichess has no user called “' + u + '”.';
     return;
   }
-  inp.value = '';
+  inp.value = ''; addOpen = false; rvAccounts();
 }
 $('#rvadd').onclick = rvAdd;
 $('#rvu').addEventListener('keydown', e => { if (e.key === 'Enter') rvAdd(); });
-$('#rvgo').onclick = () => rvFetch(false); $('#rvc').onchange = rvRender;
+$('#rvc').onchange = rvRender;
 $('#rva').onchange = e => { RV.af = e.target.value; rvSave(); rvRender(); };
 $('#rvaccs').onclick = e => {
+  if (e.target.closest('#rvplus')) { addOpen = !addOpen; rvAccounts(); if (addOpen) $('#rvu').focus(); return; }
   const b = e.target.closest('button[data-u]'); if (!b) return;
   const u = b.dataset.u;
   if (accArm !== u) { accArm = u; rvAccounts(); clearTimeout(rvAccounts.t); rvAccounts.t = setTimeout(() => { accArm = null; rvAccounts(); }, 4000); return; }
@@ -571,18 +576,19 @@ $('#rvaccs').onclick = e => {
   Object.assign(RV, removeAccount(RV, u)); rvSave(); rvRender();
   $('#rvst').textContent = 'Removed ' + u + ' and its games.';
 };
-$('#rvauto').checked = RV.auto; $('#rvauto').onchange = e => { RV.auto = e.target.checked; rvSave(); };
-$('#rvv').value = RV.view === 'all' ? 'all' : 'new'; $('#rvv').onchange = e => { RV.view = e.target.value; rvSave(); rvRender(); };
-$('#rv').addEventListener('toggle', rvMarkViewed);
+$('#rvv').onchange = e => { RV.view = e.target.value; rvSave(); rvRender(); };
+$('#rv').addEventListener('toggle', () => { if ($('#rv').open) { rvRender(); rvFetch(true); } });
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') rvFetch(true); });
 $('#rvout').onclick = e => {
   if (e.target.closest('a')) return;
-  if (e.target.closest('#rvmark')) { RV.mark = newestGame(RV.games); RV.viewed = false; rvSave(); rvRender(); return; }
-  if (e.target.closest('#rvall')) { RV.view = 'all'; $('#rvv').value = 'all'; rvSave(); rvRender(); return; }
+  if (e.target.closest('#rvmark')) { if (RV.res) markReviewed(['dev', 'opp', 'end'].flatMap(t => RV.res[t].flatMap(o => o.ids))); rvRender(); return; }
+  if (e.target.closest('#rvall')) { RV.view = 'all'; rvSave(); rvRender(); return; }
   if (e.target.closest('#qzgo')) { if (RV.res && RV.res.dev.length) qzStart(RV.res.dev, 0); return; }
   const r = e.target.closest('.rvr'); if (!r || !RV.res) return;
   const o = RV.res[r.dataset.t][+r.dataset.i]; if (!o) return;
   if (r.dataset.t === 'dev') { qzStart(RV.res.dev, +r.dataset.i); return; }
+  // looking at the position counts as reviewing it; the row disappears the next time the list is drawn
+  markReviewed(o.ids); r.classList.add('done');
   const l = lineThrough(lines, o.r.key); if (!l) return;
   if (playing) setPlay(false);
   if (baseCi >= 0 && l.g !== baseCi) { $('#chap').value = '-1'; setPool(-1); }
@@ -624,7 +630,7 @@ function qzShow() {
   qzReveal();
 }
 function qzDone(good) {
-  Q.finish(QZ, good); $('#qzs').textContent = Q.scoreText(QZ); document.body.classList.remove('quizq');
+  Q.finish(QZ, good); markReviewed(QZ.o.ids || []); $('#qzs').textContent = Q.scoreText(QZ); document.body.classList.remove('quizq');
   $('#qzm').textContent = Q.resultText(QZ.o, good, QZ.tries);
   $('#qzshow').classList.add('hide'); $('#qznext').textContent = QZ.i + 1 < QZ.list.length ? 'Next' : 'Finish'; $('#qznext').classList.remove('hide');
   qzReveal();
@@ -634,7 +640,7 @@ function qzEnd() { document.body.classList.remove('quizq'); QZ.on = false; $('#q
 function qzExit() {
   if (QZ) QZ.on = false;
   document.body.classList.remove('quizq', 'quizon'); $('#qz').classList.add('hide');
-  $('#rv').open = true; $('#rvout').scrollIntoView({ block: 'start' }); // back to the review list
+  rvRender(); $('#rv').open = true; $('#rvout').scrollIntoView({ block: 'start' }); // back to the review list
 }
 $('#qzshow').onclick = qzAnswer; $('#qznext').onclick = () => { Q.advance(QZ); qzShow(); }; $('#qzexit').onclick = qzExit;
 
@@ -690,7 +696,7 @@ if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.ser
 function syncRead(k) {
   if (k === 'pgn-w' || k === 'pgn-b') return TX[k[4]] || '';
   if (k === 'state') return { set: { ...S }, opt: { w: OPT.w, b: OPT.b }, rm: { w: RM.w, b: RM.b },
-    lichess: { accs: RV.accs.map(x => x.u), auto: RV.auto, view: RV.view, af: RV.af, mark: RV.mark, viewed: RV.viewed } };
+    lichess: { accs: RV.accs.map(x => x.u), view: RV.view, af: RV.af, reviewed: capReviewed([...REV]) } };
   if (k === 'progress') return { seen: [...seen], pos: [...seenPos], edges, resetAt };
 }
 let rebuildDue = false;
@@ -708,8 +714,9 @@ function syncWrite(k, v) {
     const keep = names.map(u => RV.accs.find(x => x.u.toLowerCase() === u.toLowerCase()) || { u, last: 0 });
     const lc = new Set(names.map(u => u.toLowerCase()));
     RV.games = RV.games.filter(g => lc.has(g.a)); RV.accs = keep;
-    Object.assign(RV, { auto: L.auto !== false, view: L.view || 'new', af: L.af || '', mark: L.mark || 0, viewed: !!L.viewed });
-    rvStore(); $('#rvauto').checked = RV.auto; $('#rvv').value = RV.view === 'all' ? 'all' : 'new'; rvRender();
+    Object.assign(RV, { view: L.view === 'all' ? 'all' : 'review', af: L.af || '' });
+    (L.reviewed || []).forEach(k => REV.add(k)); // reviewed on any device = reviewed everywhere
+    rvStore(); rvRender();
     if (JSON.stringify([OPT.w, OPT.b, RM.w, RM.b]) !== before) rebuildDue = true;
   } else if (k === 'progress') {
     seen.clear(); (v.seen || []).forEach(x => seen.add(x)); store('rp-seen', [...seen]);
