@@ -19,6 +19,12 @@
 <h1><span>♞ Repertoire Player</span><span class="row"><button id="glb" class="hide">▣ Glance</button><button id="pop" class="hide">⧉ Pop out</button><button id="load2" class="hide">Repertoires</button></span></h1>
 
 <div id="empty" class="card">
+  <div id="sync" style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--bd)">
+    <b>Sync across devices</b><div class="sub" id="systat"></div>
+    <div class="row hide" id="syform" style="margin-top:8px"><input id="syemail" class="inp" type="email" placeholder="Email" autocomplete="username" autocapitalize="off"><input id="sypw" class="inp" type="password" placeholder="Password" autocomplete="current-password"><button id="syin" class="p">Sign in</button><button id="syup">Create account</button><button id="syforgot">Forgot password?</button></div>
+    <div class="row hide" id="syon" style="margin-top:8px"><span>Signed in as <b id="sywho"></b></span><button id="synow">Sync now</button><button id="syoff">Sign out</button></div>
+    <p class="hint" id="synote" style="text-align:left;margin:6px 0 0"></p>
+  </div>
   <div class="row" style="margin-bottom:10px"><b>Import as</b><select id="side"><option value="w">White repertoire</option><option value="b">Black repertoire</option></select><span class="sub" id="impst"></span><button id="rmrestore" class="hide" style="padding:3px 12px">Restore removed moves</button><button id="back" class="hide" style="margin-left:auto">← Back to player</button></div>
   <div class="row hide" id="pgnrow" style="margin-bottom:10px"><button id="pgnexp">⬇ Export PGN</button><button id="pgncopy">Copy PGN</button><button id="repdel">🗑 Remove repertoire</button><span class="sub" id="pgnst"></span></div>
   <label style="margin-bottom:10px"><input type="checkbox" id="mainonly"> Skip alternative moves for my side (keep only the main move)</label>

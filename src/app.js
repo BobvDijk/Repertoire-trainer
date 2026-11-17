@@ -8,6 +8,8 @@ import { lichessGamesUrl, parseLichessGames, mergeGames, summarize, shouldAutoCh
   newestGame, migrateReview, addAccount, removeAccount, gameKey } from './review.js';
 import * as Q from './quiz.js';
 import { unlockAudio, thump, speak } from './effects.js';
+import { createSync } from './sync.js';
+import { firebaseConfig } from './firebase-config.js';
 
 let pw = null;
 const $ = s => document.querySelector(s) || (pw && pw.document.querySelector(s));
@@ -16,14 +18,16 @@ let lines = [], chapters = [], pool = [], order = [], oi = 0, mi = 0, cur = null
 /* ---------- storage ---------- */
 const load = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } };
 const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) { /* full or blocked */ } };
+// Tells the sync engine (when signed in) that a synced document changed on this device.
+let syncDirty = () => {};
 const S = { spd: 2, pau: 3, shuf: false, loop: true, stay: false, skip: true, mode: 'full', snd: false, say: false, ...load('rp-set', {}) };
-const save = () => store('rp-set', S);
+const save = () => { store('rp-set', S); syncDirty('state'); };
 const seen = new Set(load('rp-seen', []));
-const saveSeen = () => store('rp-seen', [...seen]);
+const saveSeen = () => { store('rp-seen', [...seen]); syncDirty('progress'); };
 const seenPos = new Set(load('rp-pos', []));
-const savePos = () => store('rp-pos', [...seenPos]);
-let edges = load('rp-edges', {});
-const saveEdges = () => store('rp-edges', edges);
+const savePos = () => { store('rp-pos', [...seenPos]); syncDirty('progress'); };
+let edges = load('rp-edges', {}), resetAt = load('rp-reset-at', 0);
+const saveEdges = () => { store('rp-edges', edges); syncDirty('progress'); };
 addEventListener('pagehide', saveEdges);
 
 /* ---------- line selection ---------- */
@@ -182,7 +186,7 @@ const SKIP = { w: 0, b: 0 };
 // Moves removed from the repertoire, per side: [{k: edge key, label: '3.Bc4'}]. The stored PGN is
 // not changed; removals are applied on every load, so they can be undone.
 const RM = { w: [], b: [], ...load('rp-removed', {}) };
-const saveRM = () => store('rp-removed', RM);
+const saveRM = () => { store('rp-removed', RM); syncDirty('state'); };
 let delArm = null; // side whose "Remove repertoire" button waits for the confirming tap
 function buildAll() {
   lines = []; chapters = []; REPC = {}; TSIG = '';
@@ -277,6 +281,7 @@ $('#repdel').onclick = () => {
   clearTimeout(b.t); delArm = null;
   TX[sd] = ''; RM[sd] = []; saveRM();
   try { localStorage.removeItem('rp-pgn-' + sd); } catch (e) { /* no storage */ }
+  syncDirty('pgn-' + sd);
   setPlay(false); buildAll(); impStatus(); rvRender();
   if (lines.length) refreshPlayer(); else { cur = null; $('#back').classList.add('hide'); }
   $('#impst').textContent = nm + ' repertoire removed. ' + $('#impst').textContent;
@@ -287,6 +292,7 @@ function start(text, side) {
     const prev = TX[side]; TX[side] = text; const r = buildAll();
     if (!r[side === 'w' ? 0 : 1]) { TX[side] = prev; buildAll(); impStatus(); $('#impst').textContent = 'No readable lines in that PGN. ' + $('#impst').textContent; return false; }
     try { localStorage.setItem('rp-pgn-' + side, text); } catch (e) { /* full */ }
+    syncDirty('pgn-' + side);
   } else buildAll();
   impStatus(); if (!lines.length) return false;
   $('#empty').classList.add('hide'); $('#player').classList.remove('hide'); ['#load2', '#glb', '#pop'].forEach(x => $(x).classList.remove('hide'));
@@ -296,7 +302,7 @@ function start(text, side) {
 const syncMainOnly = () => { $('#mainonly').checked = !!OPT[$('#side').value].mainOnly; impStatus(); };
 $('#side').onchange = syncMainOnly;
 $('#mainonly').onchange = e => {
-  const sd = $('#side').value; OPT[sd] = { ...OPT[sd], mainOnly: e.target.checked }; store('rp-pgnopt', OPT);
+  const sd = $('#side').value; OPT[sd] = { ...OPT[sd], mainOnly: e.target.checked }; store('rp-pgnopt', OPT); syncDirty('state');
   if (!TX[sd]) return;
   buildAll(); impStatus(); if (lines.length) refreshPlayer();
 };
@@ -428,21 +434,23 @@ $('#pop').onclick = async () => {
 $('#exmv').onclick = e => { const x = e.target.closest('button'); if (!x || x.dataset.k === undefined) return; const c = exKids[+x.dataset.k]; if (c) setAnchor(c.l, c.i + 1); };
 $('#chap').onchange = e => { setPool(+e.target.value); if (playing) tick(); };
 $('#mv').onclick = e => { const i = e.target.dataset && e.target.dataset.i; if (i) { mi = +i; show(); if (playing) tick(); } };
+const uiSync = []; // functions that put S back into the controls (after settings arrive from another device)
 function bind(id, key, fmt) {
   const el = $('#' + id), out = $('#' + id + 'v'); el.value = S[key]; S[key] = +el.value;
   const u = () => { if (out) out.textContent = fmt(S[key]); }; u();
   el.oninput = () => { S[key] = +el.value; u(); save(); };
+  uiSync.push(() => { el.value = S[key]; u(); });
 }
 bind('spd', 'spd', v => (Math.round(v * 10) / 10) + 's'); bind('pau', 'pau', v => v + 's');
-$('#mode').value = S.mode; $('#mode').onchange = e => { S.mode = e.target.value; save(); if (pool.length) { mkOrder(); oi = 0; loadLine(); } };
+$('#mode').value = S.mode; uiSync.push(() => { $('#mode').value = S.mode; }); $('#mode').onchange = e => { S.mode = e.target.value; save(); if (pool.length) { mkOrder(); oi = 0; loadLine(); } };
 let rt;
 $('#rst').onclick = e => {
   const b = e.target;
-  if (b.dataset.arm) { seen.clear(); saveSeen(); seenPos.clear(); savePos(); edges = {}; saveEdges(); delete b.dataset.arm; b.textContent = 'Reset progress'; clearTimeout(rt); if (pool.length) { mkOrder(); oi = 0; loadLine(); } }
+  if (b.dataset.arm) { resetAt = Date.now(); store('rp-reset-at', resetAt); seen.clear(); saveSeen(); seenPos.clear(); savePos(); edges = {}; saveEdges(); delete b.dataset.arm; b.textContent = 'Reset progress'; clearTimeout(rt); if (pool.length) { mkOrder(); oi = 0; loadLine(); } }
   else { b.dataset.arm = 1; b.textContent = 'Tap again to confirm'; rt = setTimeout(() => { delete b.dataset.arm; b.textContent = 'Reset progress'; }, 3000); }
 };
 for (const k of ['shuf', 'loop', 'stay', 'skip', 'snd', 'say']) {
-  const el = $('#' + k); el.checked = S[k];
+  const el = $('#' + k); el.checked = S[k]; uiSync.push(() => { el.checked = S[k]; });
   el.onchange = () => { S[k] = el.checked; save(); if (k === 'snd' || k === 'say') unlockAudio(); if ((k === 'shuf' || k === 'skip') && pool.length) { mkOrder(); oi = 0; loadLine(); } if (k === 'stay' && playing) { setPlay(false); setPlay(true); } };
 }
 document.addEventListener('keydown', e => {
@@ -461,7 +469,8 @@ document.addEventListener('visibilitychange', () => { if (document.visibilitySta
 // their account (g.a, lowercase). mark/viewed: games played after `mark` count as new (advanceMark).
 // view: 'new' | 'all'; af: account filter ('' = all accounts).
 const RV = { accs: [], games: [], checked: 0, auto: true, mark: 0, viewed: false, view: 'new', af: '', res: null, busy: false, ...migrateReview(load('rp-lichess', {})) };
-const rvSave = () => store('rp-lichess', { accs: RV.accs, games: RV.games, checked: RV.checked, auto: RV.auto, mark: RV.mark, viewed: RV.viewed, view: RV.view, af: RV.af });
+const rvStore = () => store('rp-lichess', { accs: RV.accs, games: RV.games, checked: RV.checked, auto: RV.auto, mark: RV.mark, viewed: RV.viewed, view: RV.view, af: RV.af });
+const rvSave = () => { rvStore(); syncDirty('state'); };
 const accName = a => (RV.accs.find(x => x.u.toLowerCase() === a) || { u: a }).u;
 const rvNewCount = () => newGames(RV.games, RV.mark).length;
 // "· N new" in the closed review header while there are new games you haven't looked at.
@@ -675,6 +684,123 @@ $('#tree').onclick = e => {
 
 /* ---------- offline / install ---------- */
 if ('serviceWorker' in navigator && location.protocol !== 'file:') navigator.serviceWorker.register('sw.js').catch(() => {});
+
+/* ---------- sync between devices (Firebase; see sync.js) ---------- */
+// What each synced document holds on this device, and how to take one over from another device.
+function syncRead(k) {
+  if (k === 'pgn-w' || k === 'pgn-b') return TX[k[4]] || '';
+  if (k === 'state') return { set: { ...S }, opt: { w: OPT.w, b: OPT.b }, rm: { w: RM.w, b: RM.b },
+    lichess: { accs: RV.accs.map(x => x.u), auto: RV.auto, view: RV.view, af: RV.af, mark: RV.mark, viewed: RV.viewed } };
+  if (k === 'progress') return { seen: [...seen], pos: [...seenPos], edges, resetAt };
+}
+let rebuildDue = false;
+function syncWrite(k, v) {
+  if (k === 'pgn-w' || k === 'pgn-b') {
+    const sd = k[4]; TX[sd] = v || '';
+    try { if (v) localStorage.setItem('rp-pgn-' + sd, v); else localStorage.removeItem('rp-pgn-' + sd); } catch (e) { /* full */ }
+    rebuildDue = true;
+  } else if (k === 'state') {
+    const before = JSON.stringify([OPT.w, OPT.b, RM.w, RM.b]);
+    Object.assign(S, v.set || {}); store('rp-set', S); uiSync.forEach(f => f());
+    OPT.w = (v.opt || {}).w || { mainOnly: false }; OPT.b = (v.opt || {}).b || { mainOnly: false }; store('rp-pgnopt', OPT);
+    RM.w = (v.rm || {}).w || []; RM.b = (v.rm || {}).b || []; store('rp-removed', RM);
+    const L = v.lichess || {}, names = L.accs || [];
+    const keep = names.map(u => RV.accs.find(x => x.u.toLowerCase() === u.toLowerCase()) || { u, last: 0 });
+    const lc = new Set(names.map(u => u.toLowerCase()));
+    RV.games = RV.games.filter(g => lc.has(g.a)); RV.accs = keep;
+    Object.assign(RV, { auto: L.auto !== false, view: L.view || 'new', af: L.af || '', mark: L.mark || 0, viewed: !!L.viewed });
+    rvStore(); $('#rvauto').checked = RV.auto; $('#rvv').value = RV.view === 'all' ? 'all' : 'new'; rvRender();
+    if (JSON.stringify([OPT.w, OPT.b, RM.w, RM.b]) !== before) rebuildDue = true;
+  } else if (k === 'progress') {
+    seen.clear(); (v.seen || []).forEach(x => seen.add(x)); store('rp-seen', [...seen]);
+    seenPos.clear(); (v.pos || []).forEach(x => seenPos.add(x)); store('rp-pos', [...seenPos]);
+    edges = v.edges || {}; store('rp-edges', edges);
+    resetAt = v.resetAt || 0; store('rp-reset-at', resetAt);
+    PE = null; if (cur) updProg();
+  }
+  clearTimeout(syncWrite.t); syncWrite.t = setTimeout(applyRebuild, 0);
+}
+// After repertoires or removals arrived from another device: rebuild and show them.
+function applyRebuild() {
+  if (!rebuildDue) return;
+  rebuildDue = false;
+  const onPlayer = !$('#player').classList.contains('hide'), had = !!cur;
+  buildAll(); impStatus(); rvRender();
+  if (!lines.length) { cur = null; if (onPlayer) $('#load2').click(); $('#back').classList.add('hide'); return; }
+  if (onPlayer || !had) { if (onPlayer) refreshPlayer(); else start(); }
+  else $('#back').classList.remove('hide');
+}
+const SY = { fb: null, user: null, sync: null, busy: false };
+const syMeta = { get: k => (load('rp-sync-meta', {}))[k] || 0, set: (k, t) => { const m = load('rp-sync-meta', {}); m[k] = t; store('rp-sync-meta', m); } };
+const device = load('rp-device', '') || (() => { const d = Math.random().toString(36).slice(2, 10); store('rp-device', d); return d; })();
+// local Firebase emulators for development: http://localhost:8000/?emulator
+const emulator = /^(localhost|127\.0\.0\.1)$/.test(location.hostname) && new URLSearchParams(location.search).has('emulator');
+const fbConfig = emulator ? { apiKey: 'demo-key', authDomain: 'localhost', projectId: 'demo-repertoire', appId: 'demo' } : firebaseConfig;
+const syStatus = t => { $('#systat').textContent = t || ''; };
+function syShow() {
+  // until Firebase has loaded, trust the email remembered from the last sign-in
+  const remembered = !SY.fb && fbConfig ? load('rp-sync-user', '') : '';
+  const on = !!SY.user || !!remembered;
+  $('#syform').classList.toggle('hide', on || !fbConfig); $('#syon').classList.toggle('hide', !on);
+  $('#sywho').textContent = SY.user ? SY.user.email : remembered;
+  $('#synote').textContent = !fbConfig ? 'Sync isn’t set up for this site yet (see README).'
+    : on ? 'Your repertoires, settings, removed moves, Lichess accounts and progress are kept in step on every device you sign in on.'
+    : 'Sign in on each device to keep repertoires, settings and progress in step. On a device that already has data, the account’s repertoires and settings replace it; progress is combined.';
+}
+async function syFirebase() {
+  if (!SY.fb) {
+    const { connectFirebase } = await import('./sync-firebase.js');
+    SY.fb = await connectFirebase(fbConfig, { emulator });
+    SY.fb.onUser(u => {
+      SY.user = u; syShow();
+      if (u) { store('rp-sync-user', u.email); syStart(); }
+      else { if (SY.sync) SY.sync.stop(); SY.sync = null; syncDirty = () => {}; localStorage.removeItem('rp-sync-user'); }
+    });
+  }
+  return SY.fb;
+}
+async function syStart() {
+  if (SY.sync || !SY.user) return;
+  SY.sync = createSync({ backend: SY.fb.backend(SY.user.uid), read: syncRead, write: syncWrite, meta: syMeta, device, status: syStatus });
+  syncDirty = k => SY.sync && SY.sync.dirty(k);
+  await syNow();
+}
+async function syNow() {
+  if (!SY.sync) return;
+  try { await SY.sync.syncAll(); syStatus('Synced ' + new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })); }
+  catch (e) { syStatus(navigator.onLine === false ? 'Offline — will sync when you’re back online' : 'Sync failed: ' + (e.message || e)); }
+}
+async function syAuth(kind) {
+  if (SY.busy) return;
+  const email = $('#syemail').value.trim(), pw = $('#sypw').value;
+  if (!email) { syStatus('Enter your email'); return; }
+  SY.busy = true; syStatus(kind === 'forgot' ? 'Sending…' : 'Signing in…');
+  try {
+    const fb = await syFirebase();
+    if (kind === 'up') await fb.signUp(email, pw);
+    else if (kind === 'in') await fb.signIn(email, pw);
+    else { await fb.resetPassword(email); syStatus('Password reset email sent to ' + email); return; }
+    $('#sypw').value = '';
+  } catch (e) { const { authMessage } = await import('./sync-firebase.js'); syStatus(authMessage(e)); }
+  finally { SY.busy = false; }
+}
+$('#syin').onclick = () => syAuth('in'); $('#syup').onclick = () => syAuth('up'); $('#syforgot').onclick = () => syAuth('forgot');
+$('#sypw').addEventListener('keydown', e => { if (e.key === 'Enter') syAuth('in'); });
+$('#synow').onclick = syNow;
+$('#syoff').onclick = async () => {
+  if (SY.sync) { await SY.sync.flush(); SY.sync.stop(); SY.sync = null; }
+  syncDirty = () => {}; store('rp-sync-meta', {}); localStorage.removeItem('rp-sync-user');
+  if (SY.fb) await SY.fb.signOut();
+  syStatus('Signed out. This device keeps its data.');
+};
+document.addEventListener('visibilitychange', () => {
+  if (!SY.sync) return;
+  if (document.visibilityState === 'hidden') SY.sync.flush(); else syNow();
+});
+addEventListener('online', () => { if (SY.sync) syNow(); });
+syShow();
+// Signed in before on this device: reconnect in the background (the app works without it).
+if (fbConfig && load('rp-sync-user', '')) { syStatus('Connecting…'); syFirebase().catch(() => syStatus('Offline — will sync when you’re back online')); }
 
 try { if (TX.w || TX.b) start(); else impStatus(); } catch (e) { console.error(e); }
 rvFetch(true);

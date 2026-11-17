@@ -139,3 +139,5 @@ svg.ghost{position:fixed;left:0;top:0;z-index:50;pointer-events:none;will-change
 .acc{display:inline-flex;align-items:center;gap:4px;padding:2px 4px 2px 10px;border:1px solid var(--bd);border-radius:999px;background:var(--hl);font-size:14px}
 .acc button{min-height:0;padding:0 8px;border:none;background:none;font-size:15px;color:var(--mut)}
 #rvaccs:empty{display:none}
+/* text inputs (sync sign-in) */
+.inp{flex:1 1 160px;min-width:0;font:inherit;font-size:16px;padding:7px 10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx)}
