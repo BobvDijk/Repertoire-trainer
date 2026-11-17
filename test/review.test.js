@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildLines } from '../src/pgn.js';
 import { buildRepIndex } from '../src/position.js';
-import { lichessGamesUrl, parseLichessGames, mergeGames, gameText, summarize, shouldAutoCheck, AUTO_CHECK_GAP, newGames, advanceMark } from '../src/review.js';
+import { lichessGamesUrl, parseLichessGames, mergeGames, gameText, summarize, shouldAutoCheck, AUTO_CHECK_GAP, newGames, advanceMark, gameKey, newestGame, migrateReview, addAccount, removeAccount } from '../src/review.js';
 
 const g = (id, white, black, moves, extra = {}) => JSON.stringify({
   id, variant: 'standard', moves, createdAt: extra.t || 1,
@@ -91,4 +91,39 @@ test('advanceMark: looked-at batches become old, unseen batches add up', () => {
   st = advanceMark(st, 50, 1);           // next batch: everything up to 50 is now old
   assert.deepEqual(st, { mark: 50, viewed: false });
   assert.deepEqual(advanceMark({}, 5, 1), { mark: 0, viewed: false }, 'defaults for older saved data');
+});
+
+test('parsed games are tagged with the account (lowercase)', () => {
+  const { games } = parseLichessGames(g('a', 'Me', 'X', 'e4 e5', { t: 1 }), 'ME');
+  assert.equal(games[0].a, 'me');
+});
+
+test('mergeGames keeps a game between two of your accounts once per account', () => {
+  const m = mergeGames([{ id: 'x', a: 'one', t: 1 }], [{ id: 'x', a: 'two', t: 1 }, { id: 'x', a: 'one', t: 1 }]);
+  assert.deepEqual(m.map(gameKey).sort(), ['one:x', 'two:x']);
+});
+
+test('migrateReview turns the single-username state into an account list', () => {
+  const m = migrateReview({ u: 'Bob', last: 9, games: [{ id: 'a', t: 9 }], mark: 5, view: 'new' });
+  assert.deepEqual(m.accs, [{ u: 'Bob', last: 9 }]);
+  assert.equal(m.games[0].a, 'bob');
+  assert.equal(m.u, undefined); assert.equal(m.mark, 5);
+  assert.deepEqual(migrateReview({}).accs, []);
+  const already = { accs: [{ u: 'x', last: 1 }], games: [{ id: 'b', a: 'x', t: 1 }] };
+  assert.deepEqual(migrateReview(already), already);
+});
+
+test('addAccount ignores blanks and duplicates (any case); removeAccount drops its games', () => {
+  const a = addAccount([], ' Bob ');
+  assert.deepEqual(a, [{ u: 'Bob', last: 0 }]);
+  assert.equal(addAccount(a, 'BOB'), null);
+  assert.equal(addAccount(a, '  '), null);
+  const b = addAccount(a, 'Alt');
+  const r = removeAccount({ accs: b, games: [{ id: '1', a: 'bob' }, { id: '2', a: 'alt' }] }, 'BOB');
+  assert.deepEqual(r.accs.map(x => x.u), ['Alt']); assert.deepEqual(r.games.map(x => x.id), ['2']);
+});
+
+test('newestGame', () => {
+  assert.equal(newestGame([]), 0);
+  assert.equal(newestGame([{ t: 3 }, { t: 7 }, { t: 5 }]), 7);
 });

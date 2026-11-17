@@ -19,7 +19,14 @@
 <h1><span>♞ Repertoire Player</span><span class="row"><button id="glb" class="hide">▣ Glance</button><button id="pop" class="hide">⧉ Pop out</button><button id="load2" class="hide">Repertoires</button></span></h1>
 
 <div id="empty" class="card">
-  <div class="row" style="margin-bottom:10px"><b>Import as</b><select id="side"><option value="w">White repertoire</option><option value="b">Black repertoire</option></select><span class="sub" id="impst"></span><button id="back" class="hide" style="margin-left:auto">← Back to player</button></div>
+  <div id="sync" style="margin-bottom:12px;padding-bottom:12px;border-bottom:1px solid var(--bd)">
+    <b>Sync across devices</b><div class="sub" id="systat"></div>
+    <div class="row hide" id="syform" style="margin-top:8px"><input id="syemail" class="inp" type="email" placeholder="Email" autocomplete="username" autocapitalize="off"><input id="sypw" class="inp" type="password" placeholder="Password" autocomplete="current-password"><button id="syin" class="p">Sign in</button><button id="syup">Create account</button><button id="syforgot">Forgot password?</button></div>
+    <div class="row hide" id="syon" style="margin-top:8px"><span>Signed in as <b id="sywho"></b></span><button id="synow">Sync now</button><button id="syoff">Sign out</button></div>
+    <p class="hint" id="synote" style="text-align:left;margin:6px 0 0"></p>
+  </div>
+  <div class="row" style="margin-bottom:10px"><b>Import as</b><select id="side"><option value="w">White repertoire</option><option value="b">Black repertoire</option></select><span class="sub" id="impst"></span><button id="rmrestore" class="hide" style="padding:3px 12px">Restore removed moves</button><button id="back" class="hide" style="margin-left:auto">← Back to player</button></div>
+  <div class="row hide" id="pgnrow" style="margin-bottom:10px"><button id="pgnexp">⬇ Export PGN</button><button id="pgncopy">Copy PGN</button><button id="repdel">🗑 Remove repertoire</button><span class="sub" id="pgnst"></span></div>
   <label style="margin-bottom:10px"><input type="checkbox" id="mainonly"> Skip alternative moves for my side (keep only the main move)</label>
   <div class="drop" id="drop">
     <p style="margin:0 0 10px">Drop a <b>.pgn</b> file here, or</p>
@@ -74,15 +81,18 @@
       <div id="qzm" style="margin:8px 0"></div>
       <div class="row"><button id="qzshow">Show answer</button><button id="qznext" class="p hide">Next</button><button id="qzexit">Exit quiz</button></div></div>
     <details class="card" id="rv"><summary><b>Review my Lichess games</b><span class="sub" id="rvnew"></span></summary>
-      <div class="row" style="margin-top:8px"><input id="rvu" placeholder="Lichess username" autocapitalize="off" style="flex:1;min-width:140px;font:inherit;font-size:16px;padding:7px 10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx)">
+      <div class="row" style="margin-top:8px"><input id="rvu" placeholder="Add a Lichess username" autocapitalize="off" autocomplete="off" style="flex:1;min-width:140px;font:inherit;font-size:16px;padding:7px 10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx)"><button id="rvadd">Add</button></div>
+      <div class="row" id="rvaccs" style="margin-top:8px"></div>
+      <div class="row" style="margin-top:8px">
       <select id="rvv"><option value="new">New games</option><option value="all">All games</option></select>
+      <select id="rva" class="hide"></select>
       <select id="rvc"><option value="">Both colours</option><option value="w">White</option><option value="b">Black</option></select>
       <select id="rvn"><option value="100">Last 100</option><option value="300">Last 300</option><option value="1000">Last 1000</option></select>
       <button id="rvgo" class="p">Fetch</button></div>
       <label style="margin-top:8px"><input type="checkbox" id="rvauto"> Check for new games when I open the app</label>
       <div class="sub" id="rvst" style="margin:6px 0"></div><div id="rvout"></div></details>
     <div class="card" id="ex">
-      <div class="row"><b>Explore</b><button id="exgo">⚓ From this position</button><button id="exroot">⌂ Start</button><button id="exback" class="hide">◀ Back</button><button id="exoff" class="hide">✕ Exit</button></div>
+      <div class="row"><b>Explore</b><button id="exgo">⚓ From this position</button><button id="exroot">⌂ Start</button><button id="exback" class="hide">◀ Back</button><button id="exoff" class="hide">✕ Exit</button><button id="rmmv">🗑 Remove move</button></div>
       <div class="sub" id="expath" style="margin:6px 0"></div>
       <div class="row" id="exmv"></div>
     </div>

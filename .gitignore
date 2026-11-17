@@ -1,2 +1,5 @@
 node_modules/
 _site/
+firebase-debug.log
+firestore-debug.log
+*-debug.log

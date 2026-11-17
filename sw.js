@@ -1,10 +1,11 @@
 // Offline support: cache the app shell; serve from cache, refresh in the background.
 // Bump VERSION when the file list changes.
-const VERSION = 'v5';
+const VERSION = 'v11';
 const CACHE = 'rt-' + VERSION;
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',
   'src/app.js', 'src/pgn.js', 'src/position.js', 'src/smart.js', 'src/review.js', 'src/quiz.js', 'src/effects.js',
+  'src/sync.js', 'src/firebase-config.js',
   'vendor/chess.mjs', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png',
 ];
 
