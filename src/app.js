@@ -167,7 +167,12 @@ function step(d) { const w = playing, o = mi; mi = Math.max(0, Math.min(cur.n, m
 
 /* ---------- loading ---------- */
 const TX = { w: '', b: '' };
-try { TX.w = localStorage.getItem('rp-pgn-w') || ''; TX.b = localStorage.getItem('rp-pgn-b') || ''; const old = localStorage.getItem('rp-pgn'); if (old && !TX.w && !TX.b) TX.w = old; } catch (e) { /* no storage */ }
+try {
+  TX.w = localStorage.getItem('rp-pgn-w') || ''; TX.b = localStorage.getItem('rp-pgn-b') || '';
+  // the first version stored one PGN under 'rp-pgn': move it to the White slot once
+  const old = localStorage.getItem('rp-pgn');
+  if (old) { if (!TX.w && !TX.b) { TX.w = old; localStorage.setItem('rp-pgn-w', old); } localStorage.removeItem('rp-pgn'); }
+} catch (e) { /* no storage */ }
 let REPC = {};
 const repFor = c => REPC[c] || (REPC[c] = buildRepIndex(lines, c));
 // Per-side import options; the stored PGN is re-parsed with them on every load.
@@ -177,6 +182,7 @@ const SKIP = { w: 0, b: 0 };
 // not changed; removals are applied on every load, so they can be undone.
 const RM = { w: [], b: [], ...load('rp-removed', {}) };
 const saveRM = () => store('rp-removed', RM);
+let delArm = null; // side whose "Remove repertoire" button waits for the confirming tap
 function buildAll() {
   lines = []; chapters = []; REPC = {}; TSIG = '';
   const counts = [0, 0];
@@ -197,6 +203,7 @@ function impStatus() {
   $('#rmrestore').classList.toggle('hide', !n); $('#rmrestore').textContent = 'Restore ' + n + ' removed move' + (n > 1 ? 's' : '');
   const sd = $('#side').value, ls = lines.filter(l => l.side === sd);
   $('#pgnrow').classList.toggle('hide', !ls.length);
+  if (delArm !== sd) { delArm = null; $('#repdel').textContent = '\ud83d\uddd1 Remove repertoire'; }
   $('#pgnst').textContent = ls.length ? 'Your ' + (sd === 'b' ? 'Black' : 'White') + ' repertoire as it is now (' + ls.length + (ls.length === 1 ? ' line' : ' lines') + (n || SKIP[sd] ? ', without removed or skipped moves' : '') + ')' : '';
 }
 /* ---------- export the live repertoire as PGN ---------- */
@@ -223,7 +230,7 @@ function refreshPlayer() {
   setPlay(false); setPool(-1); rvRender();
 }
 function fillChapters() {
-  $('#chap').innerHTML = `<option value="-1">All chapters (${lines.length} lines)</option>` + chapters.map((c, i) => c.count ? `<option value="${i}">${c.name.replace(/</g, '&lt;')} (${c.count})</option>` : '').join('');
+  $('#chap').innerHTML = `<option value="-1">All chapters (${lines.length} ${lines.length === 1 ? 'line' : 'lines'})</option>` + chapters.map((c, i) => c.count ? `<option value="${i}">${c.name.replace(/</g, '&lt;')} (${c.count})</option>` : '').join('');
   $('#chap').value = String(baseCi);
 }
 // After removing or restoring moves: rebuild, then go back to position `key` (if it still exists).
@@ -256,6 +263,22 @@ $('#expath').onclick = e => {
   if (!e.target.closest('#rmundo')) return;
   const sd = cur ? cur.side : 'w', last = RM[sd].pop(); if (!last) return; saveRM();
   rebuildAt(posKeys(cur)[mi], 'Restored ' + last.label + '.');
+};
+// Remove the selected side's repertoire from the app (two taps). Progress is kept, so
+// importing the same repertoire again brings it back.
+$('#repdel').onclick = () => {
+  const sd = $('#side').value, nm = sd === 'b' ? 'Black' : 'White', b = $('#repdel');
+  if (delArm !== sd) {
+    delArm = sd; b.textContent = 'Remove your ' + nm + ' repertoire? Tap again';
+    clearTimeout(b.t); b.t = setTimeout(() => { delArm = null; b.textContent = '\ud83d\uddd1 Remove repertoire'; }, 4000);
+    return;
+  }
+  clearTimeout(b.t); delArm = null;
+  TX[sd] = ''; RM[sd] = []; saveRM();
+  try { localStorage.removeItem('rp-pgn-' + sd); } catch (e) { /* no storage */ }
+  setPlay(false); buildAll(); impStatus(); rvRender();
+  if (lines.length) refreshPlayer(); else { cur = null; $('#back').classList.add('hide'); }
+  $('#impst').textContent = nm + ' repertoire removed. ' + $('#impst').textContent;
 };
 $('#rmrestore').onclick = () => { const sd = $('#side').value; RM[sd] = []; saveRM(); buildAll(); impStatus(); if (lines.length) refreshPlayer(); };
 function start(text, side) {
