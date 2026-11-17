@@ -1,7 +1,9 @@
 # Repertoire Trainer
 
 Play through, explore and drill a chess opening repertoire from PGN files, in the browser.
-Everything is stored locally (localStorage); the only network call is the optional Lichess game review.
+Data is stored on the device (localStorage). The app only goes online for the optional Lichess game review
+(public game data) and, if you sign in, to sync your repertoires, settings and progress through your account
+(Firebase; each user can only read their own data).
 
 ## Features
 - Import White and Black repertoires (PGN with variations, comments, `[%cal]`/`[%csl]` arrows).
