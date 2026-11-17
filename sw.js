@@ -1,6 +1,6 @@
 // Offline support: cache the app shell; serve from cache, refresh in the background.
 // Bump VERSION when the file list changes.
-const VERSION = 'v9';
+const VERSION = 'v10';
 const CACHE = 'rt-' + VERSION;
 const SHELL = [
   './', 'index.html', 'styles.css', 'manifest.webmanifest',

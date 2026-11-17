@@ -22,17 +22,21 @@ export function parseLichessGames(ndjson, user, last = 0) {
     const nm = p => p && p.user && p.user.name.toLowerCase();
     const w = nm(j.players.white) === lc;
     if (!w && nm(j.players.black) !== lc) continue;
-    games.push({ id: j.id, c: w ? 'w' : 'b', m: j.moves, t: j.createdAt,
+    games.push({ id: j.id, a: lc, c: w ? 'w' : 'b', m: j.moves, t: j.createdAt,
       res: !j.winner ? 'd' : ((j.winner === 'white') === w ? 'w' : 'l') });
     last = Math.max(last, j.createdAt);
   }
   return { games, last };
 }
 
-/** Add new games to stored ones (deduplicated by id, newest first, capped). */
-export function mergeGames(old, add, cap = 1500) {
-  const ids = new Set(old.map(g => g.id));
-  return add.filter(g => !ids.has(g.id)).concat(old).sort((a, b) => b.t - a.t).slice(0, cap);
+/**
+ * Add new games to stored ones (newest first, capped). Deduplicated by account + game id, so a
+ * game between two of your own accounts is kept once for each side.
+ */
+export const gameKey = g => (g.a || '') + ':' + g.id;
+export function mergeGames(old, add, cap = 3000) {
+  const ids = new Set(old.map(gameKey));
+  return add.filter(g => !ids.has(gameKey(g))).concat(old).sort((a, b) => b.t - a.t).slice(0, cap);
 }
 
 /** "1.e4 e5 2.Nf3" for the first n plies of a game. */
@@ -53,7 +57,7 @@ export function summarize(games, repFor) {
     checked++;
     if (r.t === 'ok') { ok++; continue; }
     const k = r.key + '|' + r.san;
-    const o = A[r.t][k] || (A[r.t][k] = { r, c: g.c, id: g.id, n: 0, w: 0, d: 0, l: 0, txt: gameText(g.m.split(' '), r.ply) });
+    const o = A[r.t][k] || (A[r.t][k] = { r, c: g.c, id: g.id, a: g.a, n: 0, w: 0, d: 0, l: 0, txt: gameText(g.m.split(' '), r.ply) });
     o.n++; o[g.res]++;
   }
   const rows = {};
@@ -80,4 +84,37 @@ export const newGames = (games, mark = 0) => games.filter(g => g.t > mark);
 export function advanceMark({ mark = 0, viewed = false }, prevLast, added) {
   if (!added || !viewed) return { mark, viewed };
   return { mark: prevLast, viewed: false };
+}
+
+/* ---------- several Lichess accounts ---------- */
+
+/** Newest game time (createdAt ms), 0 without games. */
+export const newestGame = games => games.reduce((m, g) => Math.max(m, g.t || 0), 0);
+
+/**
+ * Saved review state from before accounts existed ({u, last, games}) -> {accs: [{u, last}], games
+ * tagged with their account}. Newer state is returned unchanged.
+ */
+export function migrateReview(saved) {
+  const s = { ...saved };
+  if (!Array.isArray(s.accs)) {
+    s.accs = s.u ? [{ u: s.u, last: s.last || 0 }] : [];
+    const a = (s.u || '').toLowerCase();
+    s.games = (s.games || []).map(g => (g.a ? g : { ...g, a }));
+  }
+  delete s.u; delete s.last;
+  return s;
+}
+
+/** Add a username (case-insensitive, no duplicates). Returns the new list, or null if already there. */
+export function addAccount(accs, u) {
+  u = (u || '').trim();
+  if (!u || accs.some(x => x.u.toLowerCase() === u.toLowerCase())) return null;
+  return [...accs, { u, last: 0 }];
+}
+
+/** Remove a username and its games. */
+export function removeAccount({ accs, games }, u) {
+  const lc = u.toLowerCase();
+  return { accs: accs.filter(x => x.u.toLowerCase() !== lc), games: games.filter(g => g.a !== lc) };
 }

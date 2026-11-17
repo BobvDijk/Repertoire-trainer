@@ -135,3 +135,7 @@ h1 .row button{min-height:34px;padding:3px 8px;font-size:13px}
 .sq.dragging svg{opacity:.3}
 .sq.over{box-shadow:inset 0 0 0 .6cqw rgba(20,85,30,.8)}
 svg.ghost{position:fixed;left:0;top:0;z-index:50;pointer-events:none;will-change:transform;cursor:grabbing}
+/* linked Lichess accounts */
+.acc{display:inline-flex;align-items:center;gap:4px;padding:2px 4px 2px 10px;border:1px solid var(--bd);border-radius:999px;background:var(--hl);font-size:14px}
+.acc button{min-height:0;padding:0 8px;border:none;background:none;font-size:15px;color:var(--mut)}
+#rvaccs:empty{display:none}
