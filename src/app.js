@@ -2,7 +2,7 @@
 import { Chess } from '../vendor/chess.mjs';
 import { buildLines, renumber, writePgn } from './pgn.js';
 import { posKey, prepare, posKeys, edgeKeys, pathText, isWhitePly, plyNumber,
-  buildRepIndex, lineThrough, buildGraph, spanTree, removeMoves } from './position.js';
+  buildRepIndex, lineThrough, buildGraph, spanTree, removeMoves, moveLabel } from './position.js';
 import { linePriority, smartStartIndex, recordReview, smartOrder, poolEdgeKeys, dueSummary } from './smart.js';
 import { lichessGamesUrl, parseLichessGames, mergeGames, summarize, shouldAutoCheck, migrateReview, addAccount,
   removeAccount, gameKey, toReview, capReviewed, fetchMax, FIRST_FETCH } from './review.js';
@@ -127,7 +127,7 @@ function loadLine() {
   mi = anchor ? anchor.m.get(cur) : S.mode === 'branch' ? Math.max(0, startIdx(cur)) : S.mode === 'smart' ? smartStartIndex(cur, edges) : 0;
   if (cur.g !== lastG) { lastG = cur.g; if (cur.or) flip = cur.or === 'black'; }
   $('#lname').textContent = cur.name;
-  $('#lsub').textContent = `Line ${cur.k} of ${cur.of} · ${oi + 1}/${order.length} in queue${seen.has(cur.id) ? ' · ✓ seen' : ''}${mi > 0 ? ' · from move ' + (cur.num + Math.floor((mi + (cur.black ? 1 : 0)) / 2)) : ''}` + (cur.bad ? ' · (stopped at an unreadable move)' : '');
+  $('#lsub').textContent = `Line ${cur.k} of ${cur.of} · ${oi + 1}/${order.length} in queue${seen.has(cur.id) ? ' · ✓ seen' : ''}${mi > 0 ? ' · from move ' + (cur.num + Math.floor((mi + (cur.black ? 1 : 0)) / 2)) : ''}` + (cur.bad ? ' · line stops at ' + moveLabel(cur, cur.badAt.ply, cur.badAt.san) + ' (not a legal move here)' : '');
   drawMoves(); show(); renderEx();
 }
 function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } }
@@ -203,7 +203,11 @@ function buildAll() {
 }
 function impStatus() {
   const one = sd => { const n = lines.filter(l => l.side === sd).length; return n ? n + (n === 1 ? ' line' : ' lines') + (SKIP[sd] ? ' (' + SKIP[sd] + ' alternative move' + (SKIP[sd] > 1 ? 's' : '') + ' skipped)' : '') : 'not loaded'; };
-  $('#impst').textContent = 'White: ' + one('w') + ' \u00b7 Black: ' + one('b');
+  // lines that stop early because a move in the PGN can't be played
+  const bad = lines.filter(l => prepare(l).bad);
+  $('#impst').textContent = 'White: ' + one('w') + ' \u00b7 Black: ' + one('b') + (bad.length
+    ? '. ' + bad.length + (bad.length > 1 ? ' lines stop' : ' line stops') + ' early at a move that isn\u2019t legal there, e.g. ' + moveLabel(bad[0], bad[0].badAt.ply, bad[0].badAt.san) + ' in \u201c' + bad[0].name.replace(/^. /, '') + '\u201d.'
+    : '');
   const n = RM[$('#side').value].length;
   $('#rmrestore').classList.toggle('hide', !n); $('#rmrestore').textContent = 'Restore ' + n + ' removed move' + (n > 1 ? 's' : '');
   const sd = $('#side').value, ls = lines.filter(l => l.side === sd);
