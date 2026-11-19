@@ -43,14 +43,34 @@ function setAnchor(L, j) {
   anchor = { k, L, j, m }; pool = arr; PE = null; mkOrder();
   const p = order.indexOf(pool.indexOf(L)); oi = p >= 0 ? p : 0; loadLine();
 }
+// Show line L from ply j. Unlike the ⚓ button this doesn't restrict which lines come next.
+function jumpTo(L, j) {
+  if (playing) setPlay(false);
+  let p = pool.indexOf(L);
+  if (p < 0) { // not in the current set (another chapter, or outside the ⚓ lines): back to all lines
+    anchor = null; PE = null;
+    if (baseCi >= 0 && L.g !== baseCi) { baseCi = -1; $('#chap').value = '-1'; }
+    pool = base(); mkOrder(); p = pool.indexOf(L);
+  }
+  let o = order.indexOf(p);
+  if (o < 0) { order.splice(oi + 1, 0, p); o = oi + 1; } // e.g. left out as already seen: play it now
+  oi = o; loadLine(j);
+}
+// Explore card: the repertoire's next moves from the position on the board.
 function renderEx() {
-  const on = !!anchor;
-  $('#exback').classList.toggle('hide', !on || anchor.j < 1); $('#exoff').classList.toggle('hide', !on);
-  if (!on) { exKids = []; $('#expath').textContent = 'Drag a piece (or tap it, then a square) to follow a move in your repertoire — or press ⚓ to explore from here.'; $('#exmv').innerHTML = ''; return; }
-  const g = {}; let ends = 0;
-  anchor.m.forEach((i, l) => { if (i >= l.n) { ends++; return; } const s = l.mv[i + 1].san; (g[s] = g[s] || { n: 0, l, i, s }).n++; });
+  if (!cur) return;
+  const on = !!anchor, K = posKeys(cur)[mi], g = {};
+  $('#exoff').classList.toggle('hide', !on);
+  let n = 0, ends = 0;
+  for (const l of (on ? pool : base())) {
+    const i = posKeys(l).indexOf(K); if (i < 0) continue;
+    n++; if (i >= l.n) { ends++; continue; }
+    const s = l.mv[i + 1].san; (g[s] = g[s] || { n: 0, l, i, s }).n++;
+  }
   exKids = Object.values(g).sort((a, b) => b.n - a.n);
-  $('#expath').textContent = pathText(anchor.L, anchor.j) + ' · ' + pool.length + (pool.length === 1 ? ' line' : ' lines') + (ends ? ' · ' + ends + ' end here' : '');
+  $('#expath').textContent = (on ? 'Only lines from ' + pathText(anchor.L, anchor.j) + ' (' + pool.length + ') · ' : '')
+    + n + (n === 1 ? ' line goes' : ' lines go') + ' through this position' + (ends ? ', ' + ends + ' end here' : '')
+    + (on ? '' : '. Drag a piece or tap a move below to follow your repertoire; ⚓ keeps to the lines from here.');
   $('#exmv').innerHTML = exKids.map((c, x) => '<button data-k="' + x + '" style="padding:4px 10px">' + c.s + ' <span class="sub">×' + c.n + '</span></button>').join('') || '<span class="sub">No further moves from here.</span>';
 }
 function updProg() {
@@ -120,15 +140,15 @@ function show(a) {
   $('#big').textContent = mi > 0 ? plyNumber(cur, mi) + (isWhitePly(cur, mi) ? '. ' : '… ') + cur.mv[mi].san : 'Start';
   if (mi === cur.n && cur.n > 0 && !seen.has(cur.id)) { seen.add(cur.id); saveSeen(); }
   { const k = posKeys(cur)[mi]; if (!seenPos.has(k)) { seenPos.add(k); savePos(); } }
-  updProg(); if (TT) treeSync();
+  updProg(); renderEx(); if (TT) treeSync();
 }
-function loadLine() {
+function loadLine(startAt) {
   cur = pool[order[oi]]; prepare(cur);
-  mi = anchor ? anchor.m.get(cur) : S.mode === 'branch' ? Math.max(0, startIdx(cur)) : S.mode === 'smart' ? smartStartIndex(cur, edges) : 0;
+  mi = startAt !== undefined ? startAt : anchor ? anchor.m.get(cur) : S.mode === 'branch' ? Math.max(0, startIdx(cur)) : S.mode === 'smart' ? smartStartIndex(cur, edges) : 0;
   if (cur.g !== lastG) { lastG = cur.g; if (cur.or) flip = cur.or === 'black'; }
   $('#lname').textContent = cur.name;
   $('#lsub').textContent = `Line ${cur.k} of ${cur.of} · ${oi + 1}/${order.length} in queue${seen.has(cur.id) ? ' · ✓ seen' : ''}${mi > 0 ? ' · from move ' + (cur.num + Math.floor((mi + (cur.black ? 1 : 0)) / 2)) : ''}` + (cur.bad ? ' · line stops at ' + moveLabel(cur, cur.badAt.ply, cur.badAt.san) + ' (not a legal move here)' : '');
-  drawMoves(); show(); renderEx();
+  drawMoves(); show();
 }
 function shuffle(a) { for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } }
 function mkOrder() {
@@ -249,7 +269,7 @@ function rebuildAt(key, msg) {
   if (playing) setPlay(false);
   if (!lines.length) { $('#load2').click(); return; }
   const l = lineThrough(base(), key) || lineThrough(lines, key);
-  if (l) { if (!base().includes(l)) { baseCi = -1; $('#chap').value = '-1'; } setAnchor(l, posKeys(l).indexOf(key)); } else setPool(baseCi);
+  if (l) jumpTo(l, posKeys(l).indexOf(key)); else setPool(baseCi);
   if (msg) $('#expath').innerHTML = msg;
 }
 // Remove the move on the board (and everything after it) from the repertoire. Two taps to confirm.
@@ -335,8 +355,7 @@ $('#sf').onclick = () => step(1); $('#sb').onclick = () => step(-1);
 $('#nl').onclick = () => { nextLine(); if (playing) tick(); }; $('#pl').onclick = () => { prevLine(); if (playing) tick(); };
 $('#fl').onclick = () => { flip = !flip; show(); };
 $('#exgo').onclick = () => setAnchor(cur, mi);
-$('#exroot').onclick = () => setAnchor(cur, 0);
-$('#exback').onclick = () => { if (anchor && anchor.j > 0) setAnchor(anchor.L, anchor.j - 1); };
+$('#exroot').onclick = () => { if (cur) { mi = 0; show(); } };
 $('#exoff').onclick = () => setPool(baseCi);
 /* ---------- moving pieces: tap a piece then a square, or drag it ---------- */
 function clearSel() { sel = null; $('#board').querySelectorAll('.sel,.tgt,.cap,.over').forEach(x => x.classList.remove('sel', 'tgt', 'cap', 'over')); }
@@ -360,7 +379,8 @@ function tryMove(from, to) {
   const key = posKeys(cur)[mi];
   for (const m of cands) {
     const c2 = new Chess(fen); c2.move(m); const nk = posKey(c2.fen());
-    for (const l of base()) { const K = posKeys(l); for (let i = 0; i < l.n; i++) if (K[i] === key && K[i + 1] === nk) { clearSel(); if (playing) setPlay(false); setAnchor(l, i + 1); return true; } }
+    if (mi < cur.n && posKeys(cur)[mi + 1] === nk) { clearSel(); if (playing) setPlay(false); mi++; show(); return true; }
+    for (const src of [pool, base()]) for (const l of src) { const K = posKeys(l); for (let i = 0; i < l.n; i++) if (K[i] === key && K[i + 1] === nk) { clearSel(); jumpTo(l, i + 1); return true; } }
   }
   clearSel(); $('#expath').textContent = '“' + cands[0].san + '” isn’t in your repertoire from here.'; setTimeout(renderEx, 2200); return true;
 }
@@ -435,7 +455,7 @@ $('#pop').onclick = async () => {
     w.addEventListener('pagehide', () => { const e2 = w.document.querySelector('#player'); pw = null; if (e2) ph.before(e2); ph.remove(); });
   } catch (e) { $('#lsub').textContent = 'Pop-out is not available in this browser or page.'; }
 };
-$('#exmv').onclick = e => { const x = e.target.closest('button'); if (!x || x.dataset.k === undefined) return; const c = exKids[+x.dataset.k]; if (c) setAnchor(c.l, c.i + 1); };
+$('#exmv').onclick = e => { const x = e.target.closest('button'); if (!x || x.dataset.k === undefined) return; const c = exKids[+x.dataset.k]; if (c) jumpTo(c.l, c.i + 1); };
 $('#chap').onchange = e => { setPool(+e.target.value); if (playing) tick(); };
 $('#mv').onclick = e => { const i = e.target.dataset && e.target.dataset.i; if (i) { mi = +i; show(); if (playing) tick(); } };
 const uiSync = []; // functions that put S back into the controls (after settings arrive from another device)
@@ -596,7 +616,7 @@ $('#rvout').onclick = e => {
   const l = lineThrough(lines, o.r.key); if (!l) return;
   if (playing) setPlay(false);
   if (baseCi >= 0 && l.g !== baseCi) { $('#chap').value = '-1'; setPool(-1); }
-  setAnchor(l, posKeys(l).indexOf(o.r.key));
+  jumpTo(l, posKeys(l).indexOf(o.r.key));
   flip = o.c === 'b'; show(); drawArrows((o.r.mine ? 'R' : 'Y') + o.r.from + o.r.to);
 };
 
@@ -627,7 +647,7 @@ function qzShow() {
   const l = lineThrough(lines, o.r.key, o.c);
   QZ.done = false; QZ.tries = 0; if (playing) setPlay(false);
   if (baseCi >= 0) { $('#chap').value = '-1'; setPool(-1); }
-  setAnchor(l, posKeys(l).indexOf(o.r.key)); flip = o.c === 'b'; show();
+  jumpTo(l, posKeys(l).indexOf(o.r.key)); flip = o.c === 'b'; show();
   document.body.classList.add('quizq'); $('#qz').classList.remove('hide'); $('#qzs').textContent = Q.scoreText(QZ);
   $('#qzm').textContent = Q.promptText(o);
   $('#qznext').classList.add('hide'); $('#qzshow').classList.remove('hide');
@@ -689,7 +709,7 @@ $('#tree').onclick = e => {
   if (g) { const n = g.closest('.tn'), c = n.classList.toggle('col'); g.textContent = c ? '+' : '−'; c ? TC.add(n.dataset.r) : TC.delete(n.dataset.r); return; }
   const c = e.target.closest('.tm,.tr'); if (!c) return;
   const sd = c.closest('.tn0').dataset.s, k = c.dataset.k, l = lines.find(l => (l.side || '') === sd && posKeys(l).includes(k)); if (!l) return;
-  if (playing) setPlay(false); setAnchor(l, posKeys(l).indexOf(k));
+  jumpTo(l, posKeys(l).indexOf(k));
 };
 
 /* ---------- offline / install ---------- */
