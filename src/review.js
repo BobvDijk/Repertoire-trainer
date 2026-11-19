@@ -46,7 +46,7 @@ export const gameText = (mv, n) =>
 /**
  * Analyse games against the repertoire. repFor(color) returns a buildRepIndex result.
  * Returns {checked, ok, rows:{dev,opp,end}} with rows grouped by position+move and sorted
- * by frequency: {r: analysis, c, id, n, w, d, l, txt}.
+ * by frequency: {r: analysis, c, id, n, w, d, l, ids: game keys, txt}.
  */
 export function summarize(games, repFor) {
   const A = { dev: {}, opp: {}, end: {} };
@@ -57,8 +57,8 @@ export function summarize(games, repFor) {
     checked++;
     if (r.t === 'ok') { ok++; continue; }
     const k = r.key + '|' + r.san;
-    const o = A[r.t][k] || (A[r.t][k] = { r, c: g.c, id: g.id, a: g.a, n: 0, w: 0, d: 0, l: 0, txt: gameText(g.m.split(' '), r.ply) });
-    o.n++; o[g.res]++;
+    const o = A[r.t][k] || (A[r.t][k] = { r, c: g.c, id: g.id, a: g.a, n: 0, w: 0, d: 0, l: 0, ids: [], txt: gameText(g.m.split(' '), r.ply) });
+    o.n++; o[g.res]++; o.ids.push(gameKey(g));
   }
   const rows = {};
   for (const t of ['dev', 'opp', 'end']) rows[t] = Object.values(A[t]).sort((x, y) => y.n - x.n);
@@ -69,22 +69,19 @@ export function summarize(games, repFor) {
 export const AUTO_CHECK_GAP = 5 * 60e3;
 
 /** Should the app quietly check Lichess for new games now? */
-export function shouldAutoCheck({ user, enabled, online, lastCheck = 0, now = Date.now() }) {
-  return !!user && enabled !== false && online !== false && now - lastCheck >= AUTO_CHECK_GAP;
+export function shouldAutoCheck({ user, online, lastCheck = 0, now = Date.now() }) {
+  return !!user && online !== false && now - lastCheck >= AUTO_CHECK_GAP;
 }
 
-/** Games played after the "seen up to" mark (createdAt ms). */
-export const newGames = (games, mark = 0) => games.filter(g => g.t > mark);
+/** Games not marked as reviewed (reviewed = Set of gameKey). */
+export const toReview = (games, reviewed) => games.filter(g => !reviewed.has(gameKey(g)));
 
-/**
- * Move the "new" mark after a fetch that added `added` games. If you looked at the review
- * since the last batch arrived (viewed), that batch becomes old: the mark moves to the newest
- * game before this fetch. If you haven't looked yet, the mark stays so unseen batches add up.
- */
-export function advanceMark({ mark = 0, viewed = false }, prevLast, added) {
-  if (!added || !viewed) return { mark, viewed };
-  return { mark: prevLast, viewed: false };
-}
+/** Keep the reviewed list from growing without end: the most recently added keys win. */
+export const capReviewed = (keys, max = 5000) => keys.slice(-max);
+
+/** Games to fetch: the last 20 when an account is first linked, everything new (up to 100) after that. */
+export const FIRST_FETCH = 20, CHECK_MAX = 100;
+export const fetchMax = acc => acc.last ? CHECK_MAX : FIRST_FETCH;
 
 /* ---------- several Lichess accounts ---------- */
 
@@ -92,8 +89,9 @@ export function advanceMark({ mark = 0, viewed = false }, prevLast, added) {
 export const newestGame = games => games.reduce((m, g) => Math.max(m, g.t || 0), 0);
 
 /**
- * Saved review state from before accounts existed ({u, last, games}) -> {accs: [{u, last}], games
- * tagged with their account}. Newer state is returned unchanged.
+ * Saved review state from older versions -> current shape:
+ *  - single username {u, last, games} -> {accs: [{u, last}], games tagged with their account}
+ *  - "new since mark" {mark, viewed} -> reviewed: keys of games played up to the mark
  */
 export function migrateReview(saved) {
   const s = { ...saved };
@@ -102,7 +100,9 @@ export function migrateReview(saved) {
     const a = (s.u || '').toLowerCase();
     s.games = (s.games || []).map(g => (g.a ? g : { ...g, a }));
   }
-  delete s.u; delete s.last;
+  if (!Array.isArray(s.reviewed)) s.reviewed = s.mark ? (s.games || []).filter(g => g.t <= s.mark).map(gameKey) : [];
+  if (s.view === 'new') s.view = 'review';
+  delete s.u; delete s.last; delete s.mark; delete s.viewed; delete s.auto;
   return s;
 }
 

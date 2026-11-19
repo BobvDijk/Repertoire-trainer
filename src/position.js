@@ -19,21 +19,59 @@ export const posKey = fen => {
 export const stripCheck = s => s.replace(/[+#]/g, '');
 
 /** Play a line's SAN moves once and cache positions (L.pos), moves (L.mv), L.n, L.black, L.num, L.bad. */
+// Lines share most of their moves; each move sequence is played only once and shared.
+const PLAYED = new Map();
+
+/**
+ * Play one SAN move. Besides what chess.js accepts, this also takes over-specified moves like
+ * "Ngf3" when only one knight can go to f3 (some programs write those): any notation that
+ * matches exactly one legal move is played.
+ */
+export function playSan(ch, san) {
+  const m = ch.move(san, { sloppy: true });
+  if (m) return m;
+  const x = san.replace(/[+#]+$/, '').match(/^([NBRQK])?([a-h])?([1-8])?x?([a-h][1-8])(?:=?([NBRQ]))?$/);
+  if (!x) return null;
+  const [, pc = 'P', ff, fr, to, pr] = x;
+  const c = ch.moves({ verbose: true }).filter(v => v.piece.toUpperCase() === pc && v.to === to &&
+    (!ff || v.from[0] === ff) && (!fr || v.from[1] === fr) && (!pr || (v.promotion || '').toUpperCase() === pr));
+  return c.length === 1 ? ch.move(c[0]) : null;
+}
+
+/**
+ * Play a line's SAN moves and cache positions (L.pos), moves (L.mv), L.n, L.black, L.num.
+ * If a move can't be played the line stops there: L.bad = true, L.badAt = {ply, san}.
+ */
 export function prepare(L) {
   if (L.pos) return L;
   let ch = new Chess();
   // An invalid [FEN] header would leave chess.js with an empty board: use the start position instead.
   if (L.fen && ch.validate_fen(L.fen).valid) ch = new Chess(L.fen);
-  L.pos = [ch.fen()]; L.mv = [null]; L.black = ch.turn() === 'b';
-  L.num = parseInt(ch.fen().split(' ')[5]) || 1; L.bad = false;
-  for (const s of L.sans) {
-    const m = ch.move(s, { sloppy: true });
-    if (!m) { L.bad = true; break; }
-    L.pos.push(ch.fen()); L.mv.push(m);
+  const f0 = ch.fen();
+  L.pos = [f0]; L.mv = [null]; L.black = ch.turn() === 'b';
+  L.num = parseInt(f0.split(' ')[5]) || 1; L.bad = false; L.badAt = null;
+  let key = f0, live = true; // live: `ch` is at the line's current position
+  for (let i = 0; i < L.sans.length; i++) {
+    const s = L.sans[i];
+    key += '|' + s;
+    let r = PLAYED.get(key);
+    if (r) live = false;
+    else {
+      if (!live) { ch = new Chess(L.pos[L.pos.length - 1]); live = true; }
+      const m = playSan(ch, s);
+      r = m ? { fen: ch.fen(), m } : { bad: true };
+      if (PLAYED.size > 300000) PLAYED.clear();
+      PLAYED.set(key, r);
+    }
+    if (r.bad) { L.bad = true; L.badAt = { ply: i + 1, san: s }; break; }
+    L.pos.push(r.fen); L.mv.push(r.m);
   }
   L.n = L.mv.length - 1;
   return L;
 }
+
+/** "12…Nbd7" for the move at ply i of a line (also for a move that couldn't be played). */
+export const moveLabel = (L, i, san) => plyNumber(L, i) + (isWhitePly(L, i) ? '.' : '\u2026') + san;
 
 /** Position keys for every ply of a line (index 0 = start). */
 export function posKeys(L) { prepare(L); return L.pk || (L.pk = L.pos.map(posKey)); }

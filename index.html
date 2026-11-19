@@ -37,7 +37,8 @@
   <textarea id="paste" placeholder="1. e4 e5 2. Nf3 Nc6 (2... d6 3. d4) 3. Bb5 *"></textarea>
   <div class="row" style="margin-top:8px"><button id="go">Load pasted PGN</button><button id="sample">Try a sample</button></div>
   <p class="hint">Pieces: “cburnett” by Colin M.L. Burnett (GPLv2+), the Lichess default set. Board colours from Lichess.</p>
-  <p class="hint">Everything stays in your browser. Variations become separate lines; each chapter/game is a group.</p>
+  <p class="hint">Your repertoires and progress are stored on this device. If you sign in to sync, a copy is kept in your account so your other devices can get it. Lichess games are fetched only when you use the review.</p>
+  <p class="hint">Variations become separate lines; each chapter/game is a group.</p>
 </div>
 
 <div id="player" class="wrap hide">
@@ -81,18 +82,12 @@
       <div id="qzm" style="margin:8px 0"></div>
       <div class="row"><button id="qzshow">Show answer</button><button id="qznext" class="p hide">Next</button><button id="qzexit">Exit quiz</button></div></div>
     <details class="card" id="rv"><summary><b>Review my Lichess games</b><span class="sub" id="rvnew"></span></summary>
-      <div class="row" style="margin-top:8px"><input id="rvu" placeholder="Add a Lichess username" autocapitalize="off" autocomplete="off" style="flex:1;min-width:140px;font:inherit;font-size:16px;padding:7px 10px;border:1px solid var(--bd);border-radius:8px;background:var(--bg);color:var(--tx)"><button id="rvadd">Add</button></div>
       <div class="row" id="rvaccs" style="margin-top:8px"></div>
-      <div class="row" style="margin-top:8px">
-      <select id="rvv"><option value="new">New games</option><option value="all">All games</option></select>
-      <select id="rva" class="hide"></select>
-      <select id="rvc"><option value="">Both colours</option><option value="w">White</option><option value="b">Black</option></select>
-      <select id="rvn"><option value="100">Last 100</option><option value="300">Last 300</option><option value="1000">Last 1000</option></select>
-      <button id="rvgo" class="p">Fetch</button></div>
-      <label style="margin-top:8px"><input type="checkbox" id="rvauto"> Check for new games when I open the app</label>
+      <div class="row hide" id="rvaddrow" style="margin-top:8px"><input id="rvu" class="inp" placeholder="Lichess username" autocapitalize="off" autocomplete="off"><button id="rvadd" class="p">Link account</button></div>
+      <div class="row hide" id="rvfilt" style="margin-top:8px"><select id="rvv"><option value="review">To review</option><option value="all">All games</option></select><select id="rva" class="hide"></select><select id="rvc"><option value="">Both colours</option><option value="w">White</option><option value="b">Black</option></select></div>
       <div class="sub" id="rvst" style="margin:6px 0"></div><div id="rvout"></div></details>
     <div class="card" id="ex">
-      <div class="row"><b>Explore</b><button id="exgo">⚓ From this position</button><button id="exroot">⌂ Start</button><button id="exback" class="hide">◀ Back</button><button id="exoff" class="hide">✕ Exit</button><button id="rmmv">🗑 Remove move</button></div>
+      <div class="row"><b>Explore</b><button id="exgo">⚓ Only lines from here</button><button id="exroot">⌂ Start</button><button id="exoff" class="hide">✕ All lines</button><button id="rmmv">🗑 Remove move</button></div>
       <div class="sub" id="expath" style="margin:6px 0"></div>
       <div class="row" id="exmv"></div>
     </div>

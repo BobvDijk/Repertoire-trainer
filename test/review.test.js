@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildLines } from '../src/pgn.js';
 import { buildRepIndex } from '../src/position.js';
-import { lichessGamesUrl, parseLichessGames, mergeGames, gameText, summarize, shouldAutoCheck, AUTO_CHECK_GAP, newGames, advanceMark, gameKey, newestGame, migrateReview, addAccount, removeAccount } from '../src/review.js';
+import { lichessGamesUrl, parseLichessGames, mergeGames, gameText, summarize, shouldAutoCheck, AUTO_CHECK_GAP, gameKey, newestGame, migrateReview, addAccount, removeAccount, toReview, capReviewed, fetchMax } from '../src/review.js';
 
 const g = (id, white, black, moves, extra = {}) => JSON.stringify({
   id, variant: 'standard', moves, createdAt: extra.t || 1,
@@ -62,35 +62,14 @@ test('summarize groups deviations by position and move with W/D/L', () => {
   assert.equal(s.rows.end[0].r.san, 'a6'); assert.equal(s.rows.end[0].d, 1);
 });
 
-test('shouldAutoCheck: needs a username, the setting on, a connection, and 5 minutes since the last check', () => {
-  const now = 1_700_000_000_000, base = { user: 'me', enabled: true, online: true, lastCheck: 0, now };
+test('shouldAutoCheck: needs an account, a connection, and 5 minutes since the last check', () => {
+  const now = 1_700_000_000_000, base = { user: 'me', online: true, lastCheck: 0, now };
   assert.equal(shouldAutoCheck(base), true);
   assert.equal(shouldAutoCheck({ ...base, user: '' }), false);
-  assert.equal(shouldAutoCheck({ ...base, enabled: false }), false);
   assert.equal(shouldAutoCheck({ ...base, online: false }), false);
   assert.equal(shouldAutoCheck({ ...base, lastCheck: now - AUTO_CHECK_GAP + 1 }), false);
   assert.equal(shouldAutoCheck({ ...base, lastCheck: now - AUTO_CHECK_GAP }), true);
-  assert.equal(shouldAutoCheck({ user: 'me', now }), true, 'on by default');
-});
-
-test('newGames keeps games after the mark', () => {
-  const gs = [{ id: 'a', t: 10 }, { id: 'b', t: 20 }, { id: 'c', t: 30 }];
-  assert.deepEqual(newGames(gs, 20).map(g => g.id), ['c']);
-  assert.equal(newGames(gs).length, 3);
-});
-
-test('advanceMark: looked-at batches become old, unseen batches add up', () => {
-  let st = { mark: 0, viewed: false };
-  st = advanceMark(st, 0, 3);            // first fetch: everything is new
-  assert.deepEqual(st, { mark: 0, viewed: false });
-  st = advanceMark(st, 30, 2);           // another batch before looking: still all new
-  assert.deepEqual(st, { mark: 0, viewed: false });
-  st.viewed = true;                      // you open the review
-  st = advanceMark(st, 50, 0);           // a check with nothing new changes nothing
-  assert.deepEqual(st, { mark: 0, viewed: true });
-  st = advanceMark(st, 50, 1);           // next batch: everything up to 50 is now old
-  assert.deepEqual(st, { mark: 50, viewed: false });
-  assert.deepEqual(advanceMark({}, 5, 1), { mark: 0, viewed: false }, 'defaults for older saved data');
+  assert.equal(shouldAutoCheck({ user: 'me', now }), true);
 });
 
 test('parsed games are tagged with the account (lowercase)', () => {
@@ -103,14 +82,34 @@ test('mergeGames keeps a game between two of your accounts once per account', ()
   assert.deepEqual(m.map(gameKey).sort(), ['one:x', 'two:x']);
 });
 
-test('migrateReview turns the single-username state into an account list', () => {
-  const m = migrateReview({ u: 'Bob', last: 9, games: [{ id: 'a', t: 9 }], mark: 5, view: 'new' });
+test('migrateReview turns older saved state into accounts + reviewed keys', () => {
+  const m = migrateReview({ u: 'Bob', last: 9, games: [{ id: 'a', t: 4 }, { id: 'b', t: 9 }], mark: 5, viewed: true, view: 'new', auto: true });
   assert.deepEqual(m.accs, [{ u: 'Bob', last: 9 }]);
   assert.equal(m.games[0].a, 'bob');
-  assert.equal(m.u, undefined); assert.equal(m.mark, 5);
-  assert.deepEqual(migrateReview({}).accs, []);
-  const already = { accs: [{ u: 'x', last: 1 }], games: [{ id: 'b', a: 'x', t: 1 }] };
+  assert.deepEqual(m.reviewed, ['bob:a'], 'games up to the old "seen" mark count as reviewed');
+  assert.equal(m.view, 'review');
+  for (const k of ['u', 'last', 'mark', 'viewed', 'auto']) assert.equal(m[k], undefined, k);
+  assert.deepEqual(migrateReview({}).reviewed, []);
+  const already = { accs: [{ u: 'x', last: 1 }], games: [{ id: 'b', a: 'x', t: 1 }], reviewed: ['x:b'], view: 'all' };
   assert.deepEqual(migrateReview(already), already);
+});
+
+test('toReview hides reviewed games; capReviewed keeps the newest keys', () => {
+  const gs = [{ id: '1', a: 'me' }, { id: '2', a: 'me' }, { id: '1', a: 'alt' }];
+  assert.deepEqual(toReview(gs, new Set(['me:1'])).map(gameKey), ['me:2', 'alt:1']);
+  assert.deepEqual(capReviewed(['a', 'b', 'c'], 2), ['b', 'c']);
+});
+
+test('fetchMax: 20 games when an account is first linked, up to 100 new ones afterwards', () => {
+  assert.equal(fetchMax({ u: 'x', last: 0 }), 20);
+  assert.equal(fetchMax({ u: 'x', last: 123 }), 100);
+});
+
+test('summarize lists the games behind each row', () => {
+  const lines = buildLines('1. e4 e5 2. Nf3 Nc6 3. Bb5 *', 'w').lines;
+  const R = buildRepIndex(lines, 'w');
+  const s = summarize([{ id: '1', a: 'me', c: 'w', m: 'e4 e5 Nf3 Nc6 Bc4', res: 'w' }, { id: '2', a: 'alt', c: 'w', m: 'e4 e5 Nf3 Nc6 Bc4', res: 'l' }], () => R);
+  assert.deepEqual(s.rows.dev[0].ids, ['me:1', 'alt:2']);
 });
 
 test('addAccount ignores blanks and duplicates (any case); removeAccount drops its games', () => {

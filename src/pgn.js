@@ -39,8 +39,12 @@ export function parseMoveTree(txt) {
     } else if (x === '(') { if (lp) { st.push([cur, lp]); cur = lp; } }
     else if (x === ')') { if (st.length) [cur, lp] = st.pop(); }
     else if (t[2]) {
-      const san = t[2].replace(/[!?]+$/, '').replace(/^0-0-0/, 'O-O-O').replace(/^0-0/, 'O-O');
+      const san = t[2].replace(/[\u2654\u265a]/g, 'K').replace(/[\u2655\u265b]/g, 'Q').replace(/[\u2656\u265c]/g, 'R')
+        .replace(/[\u2657\u265d]/g, 'B').replace(/[\u2658\u265e]/g, 'N')        // figurine notation
+        .replace(/[!?]+$/, '').replace(/^0-0-0/, 'O-O-O').replace(/^0-0/, 'O-O');
       if (!san || /^e\.?p\.?$/i.test(san)) continue;
+      // annotations written as text (+=, \u00b1, N, \u221e, ...) are not moves: a move names a square or castles
+      if (!/[a-h][1-8]/.test(san) && !/^O-O/.test(san)) continue;
       const n = { san, ch: [], c: '' };
       cur.ch.push(n); lp = cur; cur = n;
     }
